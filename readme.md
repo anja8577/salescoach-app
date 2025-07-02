@@ -1,6 +1,6 @@
 # SalesCoach App - Project Status
 ---
-Last Updated: June 29, 2025 - Framework creation completed and tested ✅
+Last Updated: July 01, 2025 - Framework Management System Completed ✅
 
 ## Architecture Overview
 - **Frontend**: Next.js (React) - Port 3000
@@ -11,85 +11,105 @@ Last Updated: June 29, 2025 - Framework creation completed and tested ✅
 ## Database Schema (Working)
 ### Tables Implemented:
 - `tenants` - Organizations
-- `sales_frameworks` - Main framework records
+- `sales_frameworks` - Main framework records with versioning
 - `behavior_levels` - Proficiency levels (Learner, Qualified, etc.)
 - `framework_steps` - Main steps in framework
 - `framework_substeps` - Sub-steps within steps
 - `framework_behaviors` - Specific behaviors linked to levels
 
 ## Features Completed ✅
-### Framework Management (CRUD)
-- **Frontend**: Complete UI for creating frameworks
+
+### Framework Management (Full CRUD)
+- **Framework List Page**: `/admin/frameworks` - Shows all frameworks for tenant
+  - Framework cards with version info, active status
+  - Step/behavior counts
+  - "Create New" and "Edit" buttons
+- **Framework Creation**: `/admin/frameworks/create` - Complete framework builder
   - Step → Sub-step → Behavior hierarchy
-  - Proficiency levels with colors
-  - Beautiful design with proper UX
-- **Backend**: Full API implementation
-  - POST /api/frameworks (create)
-  - GET /api/frameworks (list)
-  - Proper database integration
-- **Database**: All relationships working correctly
+  - Proficiency levels with points system
+  - Collapsible sections with status indicators
+  - Data transformation layer for backend compatibility
+- **Backend APIs**: Full framework management
+  - GET `/api/frameworks/tenant/:tenantId/list` (framework list)
+  - POST `/api/frameworks` (create new framework/version)
+  - Proper database integration with versioning
+
+### Component Architecture 
+- **Reusable Components**: Extracted to `/components`
+  - `CollapsibleSection.js` - With status indicators
+  - `BehaviorLevelsSection.js` - Level management
+  - `StructureSection.js` - Framework structure builder
+  - `InlineEditableText.js` - Inline editing utility
+- **Clean Data Flow**: Transform between frontend/backend data structures
 
 ## Current Setup Details
 ### Environment
 - Tenant ID: `cd663ebb-a679-4841-88b0-afe1eb13bec8`
 - Supabase URL: https://dulshypdifqdijzvsjfk.supabase.co
 
-### File Structure
-
+### File Structure (Current)
+```
 salescoach-app/
 ├── frontend/
-│   ├── src/app/admin/frameworks/create/page.js (✅ Working)
-│   ├── src/components/ui/button.js (✅ Updated)
-│   └── src/lib/utils.js
+│   ├── src/app/admin/frameworks/
+│   │   ├── page.js (✅ Framework List - NEW)
+│   │   └── create/page.js (✅ Framework Creation - UPDATED)
+│   ├── src/components/
+│   │   ├── CollapsibleSection.js (✅ Reused)
+│   │   ├── BehaviorLevelsSection.js (✅ Reused)
+│   │   ├── StructureSection.js (✅ Reused)
+│   │   ├── InlineEditableText.js (✅ Reused)
+│   │   └── LayoutAdmin.js (✅ Working)
+│   └── src/components/ui/button.js (✅ Updated)
 └── backend/
-├── routes/frameworks.js (✅ Working)
-├── app.js (✅ Updated)
-└── supabaseClient.js (✅ Working)
+    ├── routes/frameworks.js (✅ Enhanced with list API)
+    ├── app.js (✅ Working)
+    └── supabaseClient.js (✅ Working)
+```
 
-## Known Working APIs
+## Working APIs
 - `http://localhost:5000/api/frameworks` 
-  - GET: List all frameworks
-  - POST: Create framework with full step/substep/behavior hierarchy
-- Backend properly handles tenant_id: `cd663ebb-a679-4841-88b0-afe1eb13bec8`
+  - GET: List all frameworks (legacy)
+  - POST: Create framework with full hierarchy
+- `http://localhost:5000/api/frameworks/tenant/:tenantId/list`
+  - GET: List frameworks for tenant with stats
+- `http://localhost:5000/api/frameworks/tenant/:tenantId`
+  - GET: Get active framework structure for coaching
+
+## Features In Progress 🚧
+### Framework Edit Functionality (Next Priority)
+- Edit existing frameworks with pre-populated data
+- "Update Current Version" vs "Save as New Version" options
+- API routes for framework retrieval and updates
 
 ## Next Features to Build
-1. Framework List/View Pages
-2. Framework Edit Functionality  
-3. User Authentication
-4. Multi-tenant Management
-5. Coaching Session Management
+1. **Framework Edit Page** (`/admin/frameworks/edit/[id]`)
+2. **Framework View Page** (read-only framework display)
+3. **User Authentication & Multi-tenant Management**
+4. **Coaching Session Management** (as per original spec)
 
 ## Development Notes
-- Using standard Tailwind colors (no custom color config)
-- Hard-coded tenant for pilot phase
-- All database constraints fixed for proper multi-framework support
+- **Component Strategy**: Reusing existing components in `/components` with data transformation
+- **Data Flow**: Frontend uses simple structure, transforms to backend schema
+- **Versioning**: Framework versioning working with `is_active` flag
+- **Tenant Support**: Hard-coded tenant for pilot, ready for multi-tenant
 
+## 🚀 Quick Context for New Development Sessions
 
-## 🚀 Quick Context for New Chats
+**CURRENT STATE**: Framework Management System Complete ✅
+- Framework creation: FULLY WORKING
+- Framework listing: FULLY WORKING  
+- Component architecture: CLEAN & REUSABLE
 
-I'm building a SalesCoach app (sales training platform).
-CURRENT STATE: Framework creation is FULLY WORKING ✅
+**ENVIRONMENT:**
+- Frontend: http://localhost:3000/admin/frameworks
+- Backend: http://localhost:5000
+- Tenant ID: cd663ebb-a679-4841-88b0-afe1eb13bec8
 
-Next.js frontend + Express backend + Supabase
-Complete framework CRUD with step/sub-step/behavior hierarchy
-Database schema working with proper relationships
-APIs tested and functional
+**NEXT DEVELOPMENT PRIORITY:**
+Framework Edit functionality - reuse existing components with data loading from backend
 
-ENVIRONMENT:
-
-Frontend: http://localhost:3000
-Backend: http://localhost:5000
-Tenant ID: cd663ebb-a679-4841-88b0-afe1eb13bec8
-
-WORKING FILES:
-
-Frontend: src/app/admin/frameworks/create/page.js
-Backend: backend/routes/frameworks.js
-API: POST/GET http://localhost:5000/api/frameworks
-
-NEXT FEATURE TO BUILD: New Coaching Session Page
-
-Background: Coach logging on to SalesCoach will select from an available pool of Coachees (Coachee Selector Tool tbd later). Starts new session with selected coach, which creates a Coaching Session record and opens Coaching Session Page. 
-Coaching Session page consists of header incl. coach name, coachee name, date and time stamp. Coaching Context text entry box. Scoring section, pulling the sales framework and showing for each behavior in the framework a checkbox. checked = behavior shown, points accrued. Proficiency score is calculated for the framework, sub-scores per step. Under Scoring section, Coaching notes section consisting of 4 text entry boxes: key observations, what went well, what could be improved, action plan / next steps 
-Coach can save or submit the session. Save = can still be edited. Submit = session is locked and can't be changed anymore. The page should autosave frequently so that no data gets lost.  
-
+**KEY ARCHITECTURAL DECISIONS:**
+- Existing components in `/components` (not `/components/frameworks`)
+- Data transformation layer between frontend simple structure and backend schema
+- Versioning system ready for multiple framework versions per tenant
