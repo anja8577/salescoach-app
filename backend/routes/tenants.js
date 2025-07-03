@@ -110,7 +110,24 @@ router.get('/framework-substeps', async (req, res) => {
   res.json(data);
 });
 
-// Route to get behaviors for a framework
+// Route to get behavior levels for a framework
+router.get('/behavior-levels', async (req, res) => {
+  const { framework_id } = req.query;
+
+  if (!framework_id) return res.status(400).json({ error: 'framework_id is required' });
+
+  const { data, error } = await supabase
+    .from('behavior_levels')
+    .select('*')
+    .eq('framework_id', framework_id)
+    .order('point_value');
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  res.json(data);
+});
+
+// Route to get behaviors for a framework - THIS WAS MISSING!
 router.get('/framework-behaviors', async (req, res) => {
   const { framework_id } = req.query;
 

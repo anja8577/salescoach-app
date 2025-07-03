@@ -15,15 +15,15 @@ router.get('/', async (req, res) => {
 
 // Create new session
 router.post('/', async (req, res) => {
-  const { coach_id, coachee_id, team_id } = req.body;
+  const { coach_id, coachee_id, team_id, framework_id, session_date } = req.body;
 
-  if (!coach_id || !coachee_id || !team_id) {
-    return res.status(400).json({ error: 'coach_id, coachee_id, and team_id are required' });
+  if (!coachee_id || !team_id || !framework_id || !session_date) {
+    return res.status(400).json({ error: 'coachee_id, team_id, framework_id, and session_date are required' });
   }
 
   const { data, error } = await supabase
     .from('coaching_sessions')
-    .insert([{ coach_id, coachee_id, team_id }])
+    .insert([{ coach_id, coachee_id, team_id, framework_id, session_date }])
     .select();
 
   if (error) return res.status(500).json({ error: error.message });
