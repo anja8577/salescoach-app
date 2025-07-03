@@ -479,3 +479,236 @@ Authentication system implementation to unlock admin features and real user mana
 - Multi-tenant ready architecture
 - Mobile-first responsive design
 - localStorage fallbacks for development without auth
+
+# SalesCoach App - Project Status
+---
+Last Updated: July 03, 2025 - Authentication System Completed ✅
+
+## Architecture Overview
+- **Frontend**: Next.js (React) - Port 3000
+- **Backend**: Node.js/Express - Port 5000  
+- **Database**: Supabase (PostgreSQL)
+- **Styling**: Tailwind CSS
+- **Authentication**: JWT-based with bcrypt password hashing
+
+## Database Schema (Working)
+
+### Core Tables Implemented:
+- `tenants` - Organizations
+- `users` - System users with authentication
+- `teams` - Team/group management
+- `team_memberships` - User-team relationships with roles
+- `sales_frameworks` - Main framework records with versioning
+- `behavior_levels` - Proficiency levels (Learner, Qualified, etc.)
+- `framework_steps` - Main steps in framework
+- `framework_substeps` - Sub-steps within steps
+- `framework_behaviors` - Specific behaviors linked to levels
+
+### Authentication Tables:
+- `users` table includes: id, name, email, password_hash, system_role, created_at
+
+### Role Architecture:
+#### System Roles (users.system_role):
+- `admin` - Can access admin module, manage users, frameworks
+- `user` - Regular users who participate in coaching
+
+#### Team Roles (team_memberships.team_role):
+- `coach` - Can conduct coaching sessions with team members
+- `coachee` - Receives coaching from coaches
+
+**Example User Flow:**
+```
+User: "John Doe"
+├── system_role: 'user' (in users table)
+└── Team Memberships:
+    ├── Team A: role = 'coach'   (can coach others in Team A)
+    └── Team B: role = 'coachee' (receives coaching in Team B)
+```
+
+## Features Completed ✅
+
+### Authentication System (Full Implementation)
+- **JWT Authentication**: Secure token-based authentication with bcrypt password hashing
+- **Login/Logout**: Complete authentication flow with proper token management
+- **Protected Routes**: Role-based access control for admin features
+- **Profile Management**: Users can update name, email, and change passwords
+- **Role Detection**: Automatic admin feature visibility based on user roles
+- **Password Security**: All passwords properly hashed with bcrypt (migrated from plain text)
+- **SSR-Safe**: Authentication context handles server-side rendering properly
+
+### Framework Management (Full CRUD)
+- **Framework List Page**: `/admin/frameworks` - Shows all frameworks for tenant
+- **Framework Creation**: `/admin/frameworks/create` - Complete framework builder
+- **Backend APIs**: Full framework management with versioning
+- **Admin Access**: Only admin users can access framework management
+
+### Component Architecture 
+- **Reusable Components**: Extracted to `/components`
+  - `CollapsibleSection.js` - With status indicators
+  - `BehaviorLevelsSection.js` - Level management
+  - `StructureSection.js` - Framework structure builder
+  - `InlineEditableText.js` - Inline editing utility
+- **Authentication Context**: Complete user state management
+- **Protected Route Component**: Route-level access control
+
+### User Interface
+- **Login Page**: Professional design matching brand colors (#11339b)
+- **Profile Page**: Complete user profile management with role-based features
+- **Admin Interface**: Framework management for administrative users
+- **Responsive Design**: Mobile-first approach with Tailwind CSS
+
+## Current Setup Details
+
+### Environment
+- **Tenant ID**: `cd663ebb-a679-4841-88b0-afe1eb13bec8`
+- **Supabase URL**: https://dulshypdifqdijzvsjfk.supabase.co
+- **Frontend URL**: http://localhost:3000
+- **Backend URL**: http://localhost:5000
+
+### Authentication Test Users
+```
+Admin User:
+- Email: anja@akticon.net
+- Password: admin123
+- Role: admin (can access admin module)
+
+Regular Users:
+- Email: croatia_eln@akticon.net
+- Password: croatia123  
+- Role: user
+
+- Email: info@akticon.net
+- Password: test123
+- Role: user
+```
+
+### File Structure (Current)
+```
+salescoach-app/
+├── frontend/
+│   ├── src/app/
+│   │   ├── login/page.js (✅ Complete login system)
+│   │   ├── profile/page.js (✅ Profile management)
+│   │   ├── admin/frameworks/ (✅ Framework management)
+│   │   └── layout.js (✅ With AuthProvider)
+│   ├── src/contexts/
+│   │   └── AuthContext.js (✅ Complete auth state management)
+│   ├── src/components/
+│   │   ├── ProtectedRoute.js (✅ Route protection)
+│   │   ├── CollapsibleSection.js (✅ Reused)
+│   │   ├── BehaviorLevelsSection.js (✅ Reused)
+│   │   ├── StructureSection.js (✅ Reused)
+│   │   └── LayoutAdmin.js (✅ Working)
+│   └── public/images/
+│       └── salescoach-icon.png (✅ Brand logo)
+└── backend/
+    ├── middleware/
+    │   └── auth.js (✅ JWT middleware)
+    ├── routes/
+    │   ├── auth.js (✅ Login, profile, password change)
+    │   ├── users.js (✅ User management for admins)
+    │   └── frameworks.js (✅ Framework CRUD)
+    ├── app.js (✅ All routes configured)
+    └── supabaseClient.js (✅ Working)
+```
+
+## Working APIs
+
+### Authentication Endpoints
+- `POST /api/auth/login` - User authentication with JWT token generation
+- `GET /api/auth/me` - Get current user profile (protected)
+- `PUT /api/auth/me` - Update user profile (protected)
+- `PUT /api/auth/change-password` - Change user password (protected)
+
+### Framework Management
+- `GET /api/frameworks/tenant/:tenantId/list` - List frameworks for tenant with stats
+- `POST /api/frameworks` - Create framework with full hierarchy
+- `GET /api/frameworks/tenant/:tenantId` - Get active framework structure for coaching
+
+### User Management (Admin Only)
+- `GET /api/users` - List all users (admin only)
+- `POST /api/users` - Create new user (admin only)
+- `PUT /api/users/:id` - Update user (admin only)
+- `DELETE /api/users/:id` - Delete user (admin only)
+
+## Security Configuration
+
+### Authentication Security
+- **Password Hashing**: All passwords secured with bcrypt (salt rounds: 10)
+- **JWT Tokens**: 24-hour expiration, secure token generation
+- **Protected Routes**: Backend middleware validates all protected endpoints
+- **Role-Based Access**: Admin features restricted to admin users only
+
+### Database Security
+- **Row Level Security (RLS)**: Currently DISABLED for development
+  - ⚠️ **Note**: RLS is turned off to simplify development
+  - **Production Todo**: Re-enable RLS with proper policies
+- **Password Storage**: No plain text passwords, all bcrypt hashed
+- **Input Validation**: All user inputs validated on backend
+
+## Features In Progress 🚧
+- User Management Interface for Admins
+- Team Management System
+- Enhanced Framework Editing
+
+## Next Features to Build
+1. **Admin User Management Page** (`/admin/users`)
+2. **Team Management Interface** (`/admin/teams`)
+3. **Framework Edit Functionality** (update existing frameworks)
+4. **Coaching Session Management** (as per original spec)
+5. **Dashboard Improvements** (role-based home screens)
+
+## Development Notes
+
+### Authentication Flow
+```
+1. User enters credentials on /login
+2. Backend validates with bcrypt comparison
+3. JWT token generated with user info + roles
+4. Token stored in localStorage (SSR-safe)
+5. AuthContext manages user state globally
+6. Protected routes check authentication
+7. Role-based features show/hide based on user.system_role
+```
+
+### Password Security Migration
+- **Before**: Plain text passwords in database
+- **After**: Bcrypt hashed passwords with proper validation
+- **Migration**: Manual hash generation and database updates completed
+
+### Design System
+- **Brand Color**: #11339b (used consistently across UI)
+- **Component Pattern**: Card layouts with left borders for sections
+- **No Gradients**: Clean, professional styling
+- **Focus States**: Color-coded by section (blue for profile, orange for passwords)
+
+## 🚀 Quick Context for New Development Sessions
+
+**CURRENT STATE**: Authentication System Complete ✅
+- JWT-based login/logout: FULLY WORKING
+- Profile management: FULLY WORKING  
+- Role-based access control: FULLY WORKING
+- Framework management: FULLY WORKING
+- Password security: FULLY WORKING
+
+**ENVIRONMENT:**
+- Frontend: http://localhost:3000
+- Backend: http://localhost:5000
+- Login with: anja@akticon.net / admin123
+- Tenant ID: cd663ebb-a679-4841-88b0-afe1eb13bec8
+
+**NEXT DEVELOPMENT PRIORITY:**
+Admin User Management Interface - create `/admin/users` page for user CRUD operations
+
+**KEY ARCHITECTURAL DECISIONS:**
+- JWT authentication with bcrypt password security
+- Two-tier role system (system roles + team roles)
+- SSR-safe authentication context
+- Component reusability with data transformation layers
+- RLS disabled for development (re-enable for production)
+
+**SECURITY NOTES:**
+- All passwords are bcrypt hashed
+- JWT tokens expire in 24 hours
+- Row Level Security currently disabled for development
+- Admin features properly restricted by role checking
