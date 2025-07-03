@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import LayoutApp from '@/components/LayoutApp';
 import { Button } from '@/components/ui/button';
+import SpiderGraph from '@/components/SpiderGraph'; // NEW IMPORT
 
 export default function NewCoachingSession() {
   const [context, setContext] = useState('');
@@ -551,23 +552,39 @@ export default function NewCoachingSession() {
 
       {/* Main Content */}
       <div className="space-y-4">
-        {/* Coaching Context */}
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <h2 className="text-lg font-semibold mb-3 text-gray-900">Coaching Context</h2>
-          <div className="space-y-2">
-            <label htmlFor="context" className="block text-sm font-medium text-gray-700">
-              Session Context
-            </label>
-            <textarea
-              id="context"
-              value={context}
-              onChange={(e) => setContext(e.target.value)}
-              placeholder="Describe the context of this coaching session..."
-              className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
-              rows={3}
-            />
-          </div>
-        </div>
+     {/* Coaching Context & Skills Overview */}
+<div className="bg-white rounded-lg border border-gray-200 p-4">
+  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    {/* Right Side - Spider Graph (First on mobile) */}
+    <div className="flex items-center justify-center lg:order-2">
+      <SpiderGraph 
+        steps={frameworkData.steps}
+        getStepProficiency={getStepProficiency}
+        frameworkLevels={frameworkData.levels}
+        size={350}
+        className="w-full max-w-sm"
+      />
+    </div>
+
+    {/* Left Side - Coaching Context (Second on mobile) */}
+    <div className="lg:order-1">
+      <h2 className="text-lg font-semibold mb-3 text-gray-900">Coaching Context</h2>
+      <div className="space-y-2">
+        <label htmlFor="context" className="block text-sm font-medium text-gray-700">
+          Session Context
+        </label>
+        <textarea
+          id="context"
+          value={context}
+          onChange={(e) => setContext(e.target.value)}
+          placeholder="Describe the context of this coaching session..."
+          className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
+          rows={6}
+        />
+      </div>
+    </div>
+  </div>
+</div>
 
         {/* Skills Analysis */}
         <div className="bg-white rounded-lg border border-gray-200 p-4">
