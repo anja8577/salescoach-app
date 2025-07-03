@@ -2,7 +2,7 @@
 
 import { useRouter, usePathname } from "next/navigation";
 import Image from "next/image";
-import { Users, Group, Layers } from "lucide-react";
+import { Users, Group, Layers, Home } from "lucide-react";
 
 export default function LayoutAdmin({ children }) {
   const router = useRouter();
@@ -35,13 +35,22 @@ export default function LayoutAdmin({ children }) {
           </div>
         </div>
         <nav className="space-y-2">
-          <button onClick={() => router.push("/admin/users")} className="block w-full text-left text-gray-700 hover:text-primary font-lato">
+          {/* Home Button */}
+          <button 
+            onClick={() => router.push("/")} 
+            className="flex items-center gap-2 w-full text-left text-gray-700 hover:text-primary font-lato p-2 rounded hover:bg-gray-50"
+          >
+            <Home className="w-4 h-4" />
+            Back to App
+          </button>
+          <hr className="my-2" />
+          <button onClick={() => router.push("/admin/users")} className="block w-full text-left text-gray-700 hover:text-primary font-lato p-2 rounded hover:bg-gray-50">
             Manage Users
           </button>
-          <button onClick={() => router.push("/admin/teams")} className="block w-full text-left text-gray-700 hover:text-primary font-lato">
+          <button onClick={() => router.push("/admin/teams")} className="block w-full text-left text-gray-700 hover:text-primary font-lato p-2 rounded hover:bg-gray-50">
             Manage Teams
           </button>
-          <button onClick={() => router.push("/admin/frameworks")} className="block w-full text-left text-gray-700 hover:text-primary font-lato">
+          <button onClick={() => router.push("/admin/frameworks")} className="block w-full text-left text-gray-700 hover:text-primary font-lato p-2 rounded hover:bg-gray-50">
             Manage Framework
           </button>
         </nav>
@@ -55,6 +64,10 @@ export default function LayoutAdmin({ children }) {
 
       {/* Bottom Navigation for Mobile/Tablet */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t flex justify-around py-2 shadow-md md:hidden">
+        <button onClick={() => router.push("/")} className="flex flex-col items-center text-gray-700">
+          <Home className="w-5 h-5" />
+          <span className="text-xs font-lato">Home</span>
+        </button>
         <button onClick={() => router.push("/admin/users")} className="flex flex-col items-center text-gray-700">
           <Users className="w-5 h-5" />
           <span className="text-xs font-lato">Users</span>
@@ -64,7 +77,7 @@ export default function LayoutAdmin({ children }) {
           <span className="text-xs font-lato">Teams</span>
         </button>
         <button onClick={() => router.push("/admin/frameworks")} className="flex flex-col items-center text-gray-700">
-          <Layers className="w-5 h-5" />
+          <Layers className="w-5 h-4" />
           <span className="text-xs font-lato">Framework</span>
         </button>
       </nav>

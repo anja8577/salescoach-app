@@ -23,7 +23,11 @@ const sessionReportsRoutes = require('./routes/sessionReports');
 const tenantsRoutes = require('./routes/tenants');
 const frameworksRoutes = require('./routes/frameworks');
 
+// NEW ROUTES - Add these lines
+const profileRoutes = require('./routes/profile');
+const authRoutes = require('./routes/auth');
 
+// Existing routes
 app.use('/api', routes);
 app.use('/api/teams', teamsRoutes);
 app.use('/api/team-memberships', teamMembershipsRoutes);
@@ -33,6 +37,10 @@ app.use('/api/session-scores', sessionScoresRoutes);
 app.use('/api/session-reports', sessionReportsRoutes);
 app.use('/api', tenantsRoutes);
 app.use('/api/frameworks', frameworksRoutes);
+
+// NEW ROUTES - Add these lines
+app.use('/api/profile', profileRoutes);
+app.use('/api/auth', authRoutes);
 
 // Start server
 app.listen(PORT, () => {
