@@ -1,11 +1,25 @@
 "use client";
 
 import { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
 import LayoutApp from '@/components/LayoutApp';
 import { Button } from '@/components/ui/button';
-import SpiderGraph from '@/components/SpiderGraph'; // NEW IMPORT
+import SpiderGraph from '@/components/SpiderGraph';
 
 export default function NewCoachingSession() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { user, getToken } = useAuth();
+  
+  // Session data state
+  const [sessionData, setSessionData] = useState(null);
+  const [isEditable, setIsEditable] = useState(true);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  
+  // All your existing state variables
   const [context, setContext] = useState('');
   const [expandedSteps, setExpandedSteps] = useState(new Set());
   const [expandedSubsteps, setExpandedSubsteps] = useState(new Set());
@@ -24,16 +38,92 @@ export default function NewCoachingSession() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Session data - you can make this dynamic later
-  const sessionData = {
-    coach: "Sarah Johnson",
-    coachee: "John Doe", 
-    date: new Date().toLocaleDateString(),
-    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  };
-
   // Framework ID - hardcoded for now, can be passed as prop later
   const FRAMEWORK_ID = '7b5dbd81-bc61-48d7-8d39-bb46d4d00d74';
+
+  // Initialize session data from URL parameters
+  useEffect(() => {
+    if (!user) return;
+
+    const sessionId = searchParams.get('sessionId');
+    const coacheeId = searchParams.get('coacheeId');
+    const coacheeName = searchParams.get('coacheeName');
+    const isSelfCoaching = searchParams.get('isSelfCoaching') === 'true';
+
+    if (!sessionId || !coacheeId || !coacheeName) {
+      // No session data, redirect to home
+      router.push('/');
+      return;
+    }
+
+    setSessionData({
+      sessionId: sessionId,
+      coach: user.name,
+      coachee: coacheeName,
+      isSelfCoaching: isSelfCoaching,
+      date: new Date().toLocaleDateString(),
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      status: 'draft' // Default, will be updated when session loads
+    });
+
+    // Load existing session data if it exists
+    loadSessionData(sessionId);
+  }, [user, searchParams, router]);
+
+  // Load existing session data from backend
+  const loadSessionData = async (sessionId) => {
+    try {
+      const token = getToken();
+      if (!token) return;
+
+      const response = await fetch(`http://localhost:5000/api/coaching-sessions/${sessionId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Loaded session data:', data);
+        
+        // Update session status and editability
+        setSessionData(prev => ({
+          ...prev,
+          status: data.session.status
+        }));
+        setIsEditable(data.isEditable);
+
+        // Load session context
+        if (data.session.context) {
+          setContext(data.session.context);
+        }
+
+        // Load notes
+        if (data.notes) {
+          setNotes({
+            keyObservations: data.notes.key_observations || '',
+            whatWentWell: data.notes.what_went_well || '',
+            whatCouldBeImproved: data.notes.improvements || '',
+            actionPlan: data.notes.next_steps || ''
+          });
+        }
+
+        // Load behavior scores
+        if (data.scores && data.scores.length > 0) {
+          const behaviorSet = new Set();
+          data.scores.forEach(score => {
+            if (score.checked) {
+              behaviorSet.add(score.behavior_id);
+            }
+          });
+          setCheckedBehaviors(behaviorSet);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading session data:', error);
+    }
+  };
 
   // Fetch framework data on component mount
   useEffect(() => {
@@ -148,6 +238,121 @@ export default function NewCoachingSession() {
     fetchFrameworkData();
   }, []);
 
+  // Auto-save session data
+  const saveSession = async (showMessage = false) => {
+    if (!sessionData?.sessionId || !isEditable) {
+      console.log('Save skipped:', { 
+        hasSessionId: !!sessionData?.sessionId, 
+        isEditable 
+      });
+      return;
+    }
+
+    try {
+      const token = getToken();
+      if (!token) {
+        console.log('No auth token available');
+        return;
+      }
+
+      // Prepare scores data
+      const scoresData = [];
+      checkedBehaviors.forEach(behaviorId => {
+        scoresData.push({
+          behavior_id: behaviorId,
+          checked: true
+        });
+      });
+
+      const saveData = {
+        context: context,
+        notes: {
+          context: context,
+          keyObservations: notes.keyObservations,
+          whatWentWell: notes.whatWentWell,
+          whatCouldBeImproved: notes.whatCouldBeImproved,
+          actionPlan: notes.actionPlan
+        },
+        scores: scoresData,
+        stepScores: stepScores
+      };
+
+      console.log('Saving session data:', {
+        sessionId: sessionData.sessionId,
+        dataToSave: saveData,
+        url: `http://localhost:5000/api/coaching-sessions/${sessionData.sessionId}/save`
+      });
+
+      const response = await fetch(`http://localhost:5000/api/coaching-sessions/${sessionData.sessionId}/save`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(saveData)
+      });
+
+      console.log('Save response status:', response.status);
+      
+      if (response.ok) {
+        const responseData = await response.json();
+        console.log('Save successful:', responseData);
+        if (showMessage) {
+          showAutoSave();
+        }
+      } else {
+        const errorData = await response.json();
+        console.error('Save failed:', errorData);
+      }
+    } catch (error) {
+      console.error('Error saving session:', error);
+    }
+  };
+
+  // Submit session (lock it)
+  const submitSession = async () => {
+    if (!sessionData?.sessionId) return;
+
+    try {
+      setSubmitting(true);
+      const token = getToken();
+      if (!token) {
+        alert('Authentication required');
+        return;
+      }
+
+      // First save current data
+      await saveSession();
+
+      // Then submit the session
+      const response = await fetch(`http://localhost:5000/api/coaching-sessions/${sessionData.sessionId}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          status: 'submitted'
+        })
+      });
+
+      if (response.ok) {
+        setSessionData(prev => ({ ...prev, status: 'submitted' }));
+        setIsEditable(false);
+        setShowSubmitConfirm(false);
+        alert('Session submitted successfully! It can no longer be edited.');
+      } else {
+        const errorData = await response.json();
+        alert(`Failed to submit session: ${errorData.error}`);
+      }
+    } catch (error) {
+      console.error('Error submitting session:', error);
+      alert('Failed to submit session. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const toggleStep = (stepId) => {
     const newExpanded = new Set(expandedSteps);
     if (newExpanded.has(stepId)) {
@@ -169,6 +374,8 @@ export default function NewCoachingSession() {
   };
 
   const handleBehaviorCheck = (behaviorId, checked) => {
+    if (!isEditable) return; // Prevent changes if not editable
+    
     const newChecked = new Set(checkedBehaviors);
     if (checked) {
       newChecked.add(behaviorId);
@@ -176,17 +383,24 @@ export default function NewCoachingSession() {
       newChecked.delete(behaviorId);
     }
     setCheckedBehaviors(newChecked);
-    showAutoSave();
   };
 
   const handleStepScoreChange = (stepId, level) => {
+    if (!isEditable) return; // Prevent changes if not editable
+    
     setStepScores(prev => ({ ...prev, [stepId]: level }));
-    showAutoSave();
   };
 
   const handleNotesChange = (field, value) => {
+    if (!isEditable) return; // Prevent changes if not editable
+    
     setNotes(prev => ({ ...prev, [field]: value }));
-    showAutoSave();
+  };
+
+  const handleContextChange = (value) => {
+    if (!isEditable) return; // Prevent changes if not editable
+    
+    setContext(value);
   };
 
   const showAutoSave = () => {
@@ -194,6 +408,21 @@ export default function NewCoachingSession() {
     setTimeout(() => {
       setAutoSaveVisible(false);
     }, 1500);
+  };
+
+  const getStatusBadgeClass = (status) => {
+    switch (status) {
+      case 'draft':
+        return 'bg-yellow-100 text-yellow-800 border-yellow-500';
+      case 'submitted':
+        return 'bg-green-100 text-green-800 border-green-500';
+      case 'reviewed':
+        return 'bg-blue-100 text-blue-800 border-blue-500';
+      case 'archived':
+        return 'bg-gray-100 text-gray-800 border-gray-500';
+      default:
+        return 'bg-gray-100 text-gray-800 border-gray-300';
+    }
   };
 
   const getProficiencyBadgeClass = (level) => {
@@ -471,7 +700,8 @@ export default function NewCoachingSession() {
                   id={`behavior-${behavior.id}`}
                   checked={checkedBehaviors.has(behavior.id)}
                   onChange={(e) => handleBehaviorCheck(behavior.id, e.target.checked)}
-                  className="mt-1 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  className={`mt-1 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 ${!isEditable ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  disabled={!isEditable}
                 />
                 <label htmlFor={`behavior-${behavior.id}`} className="text-sm text-gray-700 flex-1 cursor-pointer">
                   {behavior.text}
@@ -483,6 +713,20 @@ export default function NewCoachingSession() {
       </div>
     );
   };
+
+  // Show loading if no session data yet
+  if (!sessionData) {
+    return (
+      <LayoutApp>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+            <p className="mt-4 text-gray-600">Loading session...</p>
+          </div>
+        </div>
+      </LayoutApp>
+    );
+  }
 
   // Loading state
   if (loading) {
@@ -535,11 +779,24 @@ export default function NewCoachingSession() {
         <div className="flex justify-between items-center">
           <div className="flex flex-col">
             <div className="text-xs text-gray-600">Coach: {sessionData.coach}</div>
-            <div className="text-sm font-semibold text-gray-900">Coachee: {sessionData.coachee}</div>
+            <div className="text-sm font-semibold text-gray-900">
+              Coachee: {sessionData.coachee} {sessionData.isSelfCoaching && "(Self-Coaching)"}
+            </div>
             <div className="text-xs text-gray-500">Framework: {frameworkData.framework.name}</div>
+            {!isEditable && (
+              <div className="text-xs text-orange-600 font-medium mt-1">
+                ⚠️ This session is read-only (Status: {sessionData.status})
+              </div>
+            )}
           </div>
           <div className="flex flex-col items-end">
             <div className="text-xs text-gray-600">{sessionData.date} - {sessionData.time}</div>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-xs text-gray-600">Status:</span>
+              <span className={`px-2 py-1 rounded text-xs font-medium border ${getStatusBadgeClass(sessionData.status)}`}>
+                {sessionData.status.charAt(0).toUpperCase() + sessionData.status.slice(1)}
+              </span>
+            </div>
             <div className="flex items-center gap-1 mt-1">
               <span className="text-xs text-gray-600">Overall:</span>
               <span className={`px-2 py-1 rounded text-xs font-medium border ${getProficiencyBadgeClass(getOverallProficiency())}`}>
@@ -552,39 +809,40 @@ export default function NewCoachingSession() {
 
       {/* Main Content */}
       <div className="space-y-4">
-     {/* Coaching Context & Skills Overview */}
-<div className="bg-white rounded-lg border border-gray-200 p-4">
-  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-    {/* Right Side - Spider Graph (First on mobile) */}
-    <div className="flex items-center justify-center lg:order-2">
-      <SpiderGraph 
-        steps={frameworkData.steps}
-        getStepProficiency={getStepProficiency}
-        frameworkLevels={frameworkData.levels}
-        size={350}
-        className="w-full max-w-sm"
-      />
-    </div>
+        {/* Coaching Context & Skills Overview */}
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Right Side - Spider Graph (First on mobile) */}
+            <div className="flex items-center justify-center lg:order-2">
+              <SpiderGraph 
+                steps={frameworkData.steps}
+                getStepProficiency={getStepProficiency}
+                frameworkLevels={frameworkData.levels}
+                size={350}
+                className="w-full max-w-sm"
+              />
+            </div>
 
-    {/* Left Side - Coaching Context (Second on mobile) */}
-    <div className="lg:order-1">
-      <h2 className="text-lg font-semibold mb-3 text-gray-900">Coaching Context</h2>
-      <div className="space-y-2">
-        <label htmlFor="context" className="block text-sm font-medium text-gray-700">
-          Session Context
-        </label>
-        <textarea
-          id="context"
-          value={context}
-          onChange={(e) => setContext(e.target.value)}
-          placeholder="Describe the context of this coaching session..."
-          className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
-          rows={6}
-        />
-      </div>
-    </div>
-  </div>
-</div>
+            {/* Left Side - Coaching Context (Second on mobile) */}
+            <div className="lg:order-1">
+              <h2 className="text-lg font-semibold mb-3 text-gray-900">Coaching Context</h2>
+              <div className="space-y-2">
+                <label htmlFor="context" className="block text-sm font-medium text-gray-700">
+                  Session Context
+                </label>
+                <textarea
+                  id="context"
+                  value={context}
+                  onChange={(e) => handleContextChange(e.target.value)}
+                  placeholder="Describe the context of this coaching session..."
+                  className={`w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none ${!isEditable ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                  rows={6}
+                  disabled={!isEditable}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
 
         {/* Skills Analysis */}
         <div className="bg-white rounded-lg border border-gray-200 p-4">
@@ -620,10 +878,11 @@ export default function NewCoachingSession() {
                           </span>
                         )}
                         <select 
-                          className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
+                          className={`text-xs border border-gray-300 rounded px-2 py-1 bg-white ${!isEditable ? 'opacity-50 cursor-not-allowed' : ''}`}
                           value={stepScores[step.id] || 'Auto-Calculate'}
                           onChange={(e) => handleStepScoreChange(step.id, e.target.value)}
                           onClick={(e) => e.stopPropagation()}
+                          disabled={!isEditable}
                         >
                           <option>Auto-Calculate</option>
                           {frameworkData.levels.sort((a, b) => a.point_value - b.point_value).map(level => (
@@ -692,8 +951,9 @@ export default function NewCoachingSession() {
                 value={notes.keyObservations}
                 onChange={(e) => handleNotesChange('keyObservations', e.target.value)}
                 placeholder="What did you observe during this interaction?"
-                className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
+                className={`w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none ${!isEditable ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                 rows={3}
+                disabled={!isEditable}
               />
             </div>
             <div>
@@ -705,8 +965,9 @@ export default function NewCoachingSession() {
                 value={notes.whatWentWell}
                 onChange={(e) => handleNotesChange('whatWentWell', e.target.value)}
                 placeholder="Positive aspects and strengths demonstrated..."
-                className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
+                className={`w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none ${!isEditable ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                 rows={3}
+                disabled={!isEditable}
               />
             </div>
             <div>
@@ -718,8 +979,9 @@ export default function NewCoachingSession() {
                 value={notes.whatCouldBeImproved}
                 onChange={(e) => handleNotesChange('whatCouldBeImproved', e.target.value)}
                 placeholder="Areas for development and improvement..."
-                className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
+                className={`w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none ${!isEditable ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                 rows={3}
+                disabled={!isEditable}
               />
             </div>
             <div>
@@ -731,8 +993,9 @@ export default function NewCoachingSession() {
                 value={notes.actionPlan}
                 onChange={(e) => handleNotesChange('actionPlan', e.target.value)}
                 placeholder="Recommended actions and follow-up..."
-                className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
+                className={`w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none ${!isEditable ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                 rows={3}
+                disabled={!isEditable}
               />
             </div>
           </div>
@@ -740,17 +1003,94 @@ export default function NewCoachingSession() {
 
         {/* Action Buttons */}
         <div className="flex gap-2 mt-6">
-          <Button variant="outline" className="flex-1">
-            Cancel
-          </Button>
-          <Button onClick={showAutoSave} className="flex-1">
-            Save Draft
-          </Button>
-          <Button className="flex-1 bg-green-600 hover:bg-green-700">
-            Submit
-          </Button>
+          {isEditable ? (
+            <>
+              <Button 
+                variant="outline" 
+                className="flex-1"
+                onClick={() => setShowDeleteConfirm(true)}
+              >
+                Delete Session
+              </Button>
+              <Button 
+                onClick={() => saveSession(true)} 
+                className="flex-1"
+              >
+                Save Draft
+              </Button>
+              <Button 
+                className="flex-1 bg-green-600 hover:bg-green-700"
+                onClick={() => setShowSubmitConfirm(true)}
+                disabled={submitting}
+              >
+                {submitting ? 'Submitting...' : 'Submit'}
+              </Button>
+            </>
+          ) : (
+            <div className="flex-1 text-center py-3 text-gray-600 bg-gray-100 rounded-md">
+              Session is {sessionData.status} - No longer editable
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Submit Confirmation Modal */}
+      {showSubmitConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-sm w-full">
+            <div className="p-4">
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Submit Session?</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Once submitted, this session cannot be edited anymore. Are you sure you want to continue?
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowSubmitConfirm(false)}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                  disabled={submitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={submitSession}
+                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+                  disabled={submitting}
+                >
+                  {submitting ? 'Submitting...' : 'Submit'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-sm w-full">
+            <div className="p-4">
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete Session?</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                This will permanently delete this coaching session. This action cannot be undone.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteSession}
+                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Auto-save Status */}
       {autoSaveVisible && (

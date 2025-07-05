@@ -1,13 +1,16 @@
 // LayoutApp.js - Mobile/Tablet Layout for Coaches/Coachees
 "use client";
 
+import { useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { Home, Plus, History, User } from "lucide-react";
 import Image from "next/image";
+import CoacheeSelector from "./CoacheeSelector";
 
 export default function LayoutApp({ children }) {
   const router = useRouter();
   const pathname = usePathname();
+  const [showCoacheeSelector, setShowCoacheeSelector] = useState(false);
 
   // Simple logic to derive screen title based on route
   const getTitle = () => {
@@ -23,6 +26,27 @@ export default function LayoutApp({ children }) {
       default:
         return "";
     }
+  };
+
+  const handleNewSessionClick = () => {
+    // Open the coachee selector modal instead of navigating directly
+    setShowCoacheeSelector(true);
+  };
+
+  const handleCoacheeSelected = (sessionInfo) => {
+    // Close modal
+    setShowCoacheeSelector(false);
+    
+    // Navigate to session page with session info
+    // We'll pass the session info via URL params for now
+    const params = new URLSearchParams({
+      sessionId: sessionInfo.sessionId,
+      coacheeId: sessionInfo.coacheeId,
+      coacheeName: sessionInfo.coacheeName,
+      isSelfCoaching: sessionInfo.isSelfCoaching.toString()
+    });
+    
+    router.push(`/session/create?${params.toString()}`);
   };
 
   return (
@@ -49,7 +73,7 @@ export default function LayoutApp({ children }) {
           <span className="text-xs font-lato">Home</span>
         </button>
         <button 
-          onClick={() => router.push("/session/create")} 
+          onClick={handleNewSessionClick}
           className={`flex flex-col items-center ${pathname === "/session/create" ? "text-primary" : "text-gray-700"}`}
         >
           <Plus className="w-5 h-5" />
@@ -70,6 +94,13 @@ export default function LayoutApp({ children }) {
           <span className="text-xs font-lato">Profile</span>
         </button>
       </nav>
+
+      {/* Coachee Selector Modal */}
+      <CoacheeSelector
+        isOpen={showCoacheeSelector}
+        onClose={() => setShowCoacheeSelector(false)}
+        onSelectCoachee={handleCoacheeSelected}
+      />
     </div>
   );
 }

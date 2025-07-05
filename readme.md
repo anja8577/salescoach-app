@@ -445,3 +445,136 @@ Coaching Session Management Integration - connect the coaching interface with re
 - Coaching session creation with real user/team selection
 - Framework editing functionality
 - Advanced reporting and analytics features
+
+## 🎯 Next Development Phase: Coaching Session Integration
+
+### **Integration Requirements**
+The existing coaching session interface (`/session/create`) needs to be connected to the real user/team system:
+
+#### **Current State of Coaching Interface:**
+- ✅ **Framework Integration**: Already pulls real framework data (Framework ID: `7b5dbd81-bc61-48d7-8d39-bb46d4d00d74`)
+- ✅ **Spider Graph**: Working visualization of proficiency scores
+- ✅ **Behavior Scoring**: Functional checkbox system with point calculation
+- ✅ **Notes System**: 4 coaching note sections working
+- ❌ **User Selection**: Currently uses placeholder data
+- ❌ **Session Persistence**: Not saving to database
+- ❌ **Team Integration**: No connection to team memberships
+
+#### **Integration Tasks Required:**
+
+### **1. User Selection Enhancement**
+**Current:** Hardcoded placeholder users  
+**Target:** Real team-based user selection
+
+```javascript
+// Replace this pattern:
+const coacheeId = "placeholder-user";
+
+// With this pattern:
+const { data: teamMembers } = await apiCall(`/api/teams/${teamId}/members?role=coachee`);
+```
+
+**Implementation:**
+- Add coach authentication check
+- Filter coachees based on coach's team memberships
+- Display coachee selection dropdown/list
+- Validate coach has permission to coach selected user
+
+### **2. Session Persistence Integration**
+**Current:** Session data only in memory  
+**Target:** Full database persistence with user relationships
+
+**Database Flow:**
+```
+1. coaching_sessions table: Create session record with coach_id, coachee_id, team_id
+2. session_notes table: Save coaching observations
+3. session_scores table: Save behavior scoring results
+```
+
+**API Integration Points:**
+- `POST /api/coaching-sessions` (already exists, needs user integration)
+- `POST /api/session-notes` (already exists)
+- `POST /api/session-scores` (already exists)
+
+### **3. Team-Based Access Control**
+**Authentication Requirements:**
+- Only coaches can create sessions
+- Coaches can only select coachees from their teams
+- Session history filtered by user permissions
+
+**Team Relationship Logic:**
+```sql
+-- Coach can coach User X if:
+SELECT tm1.user_id as coach_id, tm2.user_id as coachee_id
+FROM team_memberships tm1
+JOIN team_memberships tm2 ON tm1.team_id = tm2.team_id
+WHERE tm1.team_role = 'coach' 
+AND tm2.team_role = 'coachee'
+AND tm1.tenant_id = tm2.tenant_id
+```
+
+### **4. Session History & Management**
+**New Pages Needed:**
+- `/sessions/history` - List coach's previous sessions
+- `/sessions/[id]` - View/edit existing session
+- Dashboard integration showing recent sessions
+
+### **5. Navigation & UX Updates**
+**Current Navigation:** Generic session creation  
+**Target Navigation:** Role-based coaching workflow
+
+**Coach Experience:**
+```
+Home → Select Coachee → Choose Framework → Conduct Session → Save & Review
+```
+
+### **Technical Implementation Notes**
+
+#### **Existing Assets to Leverage:**
+- ✅ **AuthContext**: Already provides user info and roles
+- ✅ **API Infrastructure**: Team/user endpoints already built
+- ✅ **Session UI**: Coaching interface is complete
+- ✅ **Database Schema**: All required tables exist
+
+#### **Key Integration Points:**
+1. **User Selection Component**: New component for coach/coachee selection
+2. **Session Persistence**: Connect existing UI to database APIs
+3. **Permission Checking**: Validate coaching relationships
+4. **Session Management**: CRUD operations for saved sessions
+
+#### **Data Flow Integration:**
+```
+1. Coach logs in → AuthContext provides user + teams
+2. Coach starts session → Fetch coachees from coach's teams  
+3. Coach selects coachee → Load framework (already working)
+4. Coach conducts session → Save to database (new integration)
+5. Coach completes session → Redirect to history/dashboard
+```
+
+#### **Critical Integration Order:**
+1. **User Selection First**: Connect team memberships to session creation
+2. **Session Persistence Second**: Save sessions with user relationships
+3. **History/Management Third**: List and manage saved sessions
+4. **Dashboard Integration Last**: Show sessions in main navigation
+
+#### **Testing Scenarios:**
+- Coach with multiple teams can see coachees from all teams
+- Coach cannot select users they're not authorized to coach
+- Session data persists correctly with user relationships
+- Session history shows only sessions for current user
+- Admin can see all sessions (different permission level)
+
+### **Development Environment Setup**
+When starting new development session:
+
+1. **Verify Active Framework**: Framework ID `7b5dbd81-bc61-48d7-8d39-bb46d4d00d74`
+2. **Test Users Available**: anja@akticon.net (admin), croatia_eln@akticon.net (user)
+3. **Test Teams**: Should have teams with coach/coachee assignments
+4. **Current Session Page**: http://localhost:3000/session/create (working UI)
+
+### **Success Criteria:**
+- ✅ Coach can select real coachees from their teams
+- ✅ Sessions save to database with proper user relationships
+- ✅ Session history shows coach's previous sessions
+- ✅ Coaching UI maintains all current functionality
+- ✅ Multi-tenant security maintained throughout
