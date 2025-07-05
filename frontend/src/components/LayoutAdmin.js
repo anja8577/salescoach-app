@@ -35,15 +35,6 @@ export default function LayoutAdmin({ children }) {
           </div>
         </div>
         <nav className="space-y-2">
-          {/* Home Button */}
-          <button 
-            onClick={() => router.push("/")} 
-            className="flex items-center gap-2 w-full text-left text-gray-700 hover:text-primary font-lato p-2 rounded hover:bg-gray-50"
-          >
-            <Home className="w-4 h-4" />
-            Back to App
-          </button>
-          <hr className="my-2" />
           <button onClick={() => router.push("/admin/users")} className="block w-full text-left text-gray-700 hover:text-primary font-lato p-2 rounded hover:bg-gray-50">
             Manage Users
           </button>
@@ -52,6 +43,15 @@ export default function LayoutAdmin({ children }) {
           </button>
           <button onClick={() => router.push("/admin/frameworks")} className="block w-full text-left text-gray-700 hover:text-primary font-lato p-2 rounded hover:bg-gray-50">
             Manage Framework
+          </button>
+          <hr className="my-2" />
+          {/* Home Button */}
+          <button 
+            onClick={() => router.push("/")} 
+            className="flex items-center gap-2 w-full text-left text-gray-700 hover:text-primary font-lato p-2 rounded hover:bg-gray-50"
+          >
+            <Home className="w-4 h-4" />
+            Back to App
           </button>
         </nav>
       </aside>

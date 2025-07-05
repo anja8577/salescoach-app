@@ -27,7 +27,7 @@ const verifyToken = (token) => {
   }
 };
 
-// Authentication middleware
+// Authentication middleware (FIXED VERSION)
 const requireAuth = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -43,16 +43,25 @@ const requireAuth = async (req, res, next) => {
       return res.status(401).json({ error: 'Invalid token' });
     }
 
-    // Verify user still exists and get fresh data
+    // Verify user still exists and get fresh data - EXPLICITLY select tenant_id
     const { data: user, error } = await supabase
       .from('users')
-      .select('*')
+      .select('id, name, email, system_role, tenant_id, active, created_at')
       .eq('id', decoded.userId)
       .single();
 
     if (error || !user) {
+      console.error('User lookup error:', error);
       return res.status(401).json({ error: 'User not found' });
     }
+
+    // Debug logging
+    console.log('Auth middleware - User loaded:', {
+      id: user.id,
+      email: user.email,
+      tenant_id: user.tenant_id,
+      system_role: user.system_role
+    });
 
     req.user = user;
     next();
