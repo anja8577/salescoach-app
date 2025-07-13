@@ -41,7 +41,7 @@ export default function NewCoachingSession() {
   // Framework ID - hardcoded for now, can be passed as prop later
   const FRAMEWORK_ID = '7b5dbd81-bc61-48d7-8d39-bb46d4d00d74';
 
-  // Initialize session data from URL parameters
+  // FIXED: Initialize session data from URL parameters
   useEffect(() => {
     if (!user) return;
 
@@ -50,79 +50,364 @@ export default function NewCoachingSession() {
     const coacheeName = searchParams.get('coacheeName');
     const isSelfCoaching = searchParams.get('isSelfCoaching') === 'true';
 
-    if (!sessionId || !coacheeId || !coacheeName) {
-      // No session data, redirect to home
-      router.push('/');
+    console.log('🔄 === SESSION INITIALIZATION ===');
+    console.log('🔄 URL Parameters:', {
+      sessionId: sessionId || 'none',
+      coacheeId: coacheeId || 'none', 
+      coacheeName: coacheeName || 'none',
+      isSelfCoaching
+    });
+
+    // FIXED VALIDATION LOGIC
+    if (sessionId && !coacheeId && !coacheeName) {
+      // SCENARIO 2: Existing session being edited (only sessionId provided)
+      console.log('📝 SCENARIO: Existing session - no prepopulation needed');
+      console.log(`📝 Session ID: ${sessionId}`);
+      
+      setSessionData({
+        sessionId: sessionId,
+        coach: user.name,
+        coachee: 'Loading...', // Will be filled from session data
+        isSelfCoaching: false, // Will be determined from session data
+        date: new Date().toLocaleDateString(),
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        status: 'draft'
+      });
+      
+      loadExistingSession(sessionId);
       return;
     }
 
-    setSessionData({
-      sessionId: sessionId,
-      coach: user.name,
-      coachee: coacheeName,
-      isSelfCoaching: isSelfCoaching,
-      date: new Date().toLocaleDateString(),
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      status: 'draft' // Default, will be updated when session loads
-    });
+    if (sessionId && coacheeId && coacheeName) {
+      // SCENARIO 1: Newly created session that needs prepopulation
+      console.log('📋 SCENARIO: Newly created session - needs prepopulation');
+      console.log(`📋 Session ID: ${sessionId}`);
+      console.log(`📋 Coachee for prepopulation: ${coacheeId} (${coacheeName})`);
 
-    // Load existing session data if it exists
-    loadSessionData(sessionId);
-  }, [user, searchParams, router]);
-
-  // Load existing session data from backend
-  const loadSessionData = async (sessionId) => {
-    try {
-      const token = getToken();
-      if (!token) return;
-
-      const response = await fetch(`http://localhost:5000/api/coaching-sessions/${sessionId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
+      setSessionData({
+        sessionId: sessionId,
+        coach: user.name,
+        coachee: coacheeName,
+        isSelfCoaching: isSelfCoaching,
+        date: new Date().toLocaleDateString(),
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        status: 'draft'
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Loaded session data:', data);
-        
-        // Update session status and editability
-        setSessionData(prev => ({
-          ...prev,
-          status: data.session.status
-        }));
-        setIsEditable(data.isEditable);
-
-        // Load session context
-        if (data.session.context) {
-          setContext(data.session.context);
-        }
-
-        // Load notes
-        if (data.notes) {
-          setNotes({
-            keyObservations: data.notes.key_observations || '',
-            whatWentWell: data.notes.what_went_well || '',
-            whatCouldBeImproved: data.notes.improvements || '',
-            actionPlan: data.notes.next_steps || ''
-          });
-        }
-
-        // Load behavior scores
-        if (data.scores && data.scores.length > 0) {
-          const behaviorSet = new Set();
-          data.scores.forEach(score => {
-            if (score.checked) {
-              behaviorSet.add(score.behavior_id);
-            }
-          });
-          setCheckedBehaviors(behaviorSet);
-        }
-      }
-    } catch (error) {
-      console.error('Error loading session data:', error);
+      loadSessionDataWithPrepopulation(sessionId, coacheeId);
+      return;
     }
+
+    if (!sessionId && coacheeId && coacheeName) {
+      // SCENARIO 3: Manual session creation (fallback scenario)
+      console.log('🆕 SCENARIO: Manual session creation');
+      console.log(`🆕 Coachee: ${coacheeId} (${coacheeName})`);
+
+      setSessionData({
+        sessionId: null,
+        coach: user.name,
+        coachee: coacheeName,
+        isSelfCoaching: isSelfCoaching,
+        date: new Date().toLocaleDateString(),
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        status: 'draft'
+      });
+
+      createNewSessionWithPrepopulation(coacheeId);
+      return;
+    }
+
+    // Invalid parameters - redirect to home
+    console.log('❌ Invalid parameters - redirecting to home');
+    router.push('/');
+  }, [user, searchParams, router]);
+
+  // 1. For newly created sessions that need prepopulation
+  const loadSessionDataWithPrepopulation = async (sessionId, coacheeId) => {
+    try {
+      const token = getToken();
+      if (!token) {
+        console.log('❌ No auth token available');
+        return;
+      }
+
+      console.log(`🔄 === LOADING NEW SESSION WITH PREPOPULATION ===`);
+      console.log(`🔄 Session ID: ${sessionId}`);
+      console.log(`🔄 Coachee ID: ${coacheeId}`);
+
+      // Step 1: Load the newly created session to get basic info
+      try {
+        const sessionResponse = await fetch(`http://localhost:5000/api/coaching-sessions/${sessionId}`, {
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+        });
+
+        console.log(`📡 New session response: ${sessionResponse.status} ${sessionResponse.statusText}`);
+
+        if (sessionResponse.ok) {
+          const sessionData = await sessionResponse.json();
+          console.log('✅ Loaded new session basic info:', sessionData);
+          
+          setSessionData(prev => ({ ...prev, status: sessionData.session.status }));
+          setIsEditable(sessionData.isEditable);
+        }
+      } catch (error) {
+        console.error('💥 Error loading new session info:', error);
+      }
+
+      // Step 2: Load latest session data for prepopulation
+      console.log(`🔍 === FETCHING LATEST SESSION FOR PREPOPULATION ===`);
+      console.log(`🔍 URL: http://localhost:5000/api/coaching-sessions/latest-for-coachee/${coacheeId}?exclude=${sessionId}`);
+      
+      try {
+        const latestResponse = await fetch(`http://localhost:5000/api/coaching-sessions/latest-for-coachee/${coacheeId}?exclude=${sessionId}`, {        
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+        });
+
+        console.log(`📡 Latest session response: ${latestResponse.status} ${latestResponse.statusText}`);
+
+        if (latestResponse.ok) {
+          const latestData = await latestResponse.json();
+          console.log('📋 === RECEIVED LATEST SESSION DATA ===');
+          console.log('📋 Session found:', !!latestData.session);
+          
+          if (latestData.session) {
+            console.log('📋 Found session for coachee:', latestData.session.coachee?.name);
+            console.log('📋 Session coachee ID:', latestData.session.coachee_id);
+            console.log('📋 Expected coachee ID:', coacheeId);
+            console.log('📋 Match:', latestData.session.coachee_id === coacheeId);
+            console.log('📋 Session created:', latestData.session.created_at);
+          } else {
+            console.log('📋 No previous session found - will show empty form');
+          }
+          
+          console.log('📋 Notes found:', !!latestData.notes);
+          console.log('📋 Scores found:', latestData.scores?.length || 0);
+          
+          console.log('📋 === POPULATING UI WITH LATEST DATA ===');
+          populateUIWithData(latestData, true); // true = this is prepopulation
+          console.log('✅ UI populated successfully');
+          
+        } else {
+          const errorText = await latestResponse.text();
+          console.log('🚫 No previous session found or error:', errorText);
+          console.log('🚫 Will show empty form');
+          
+          // Clear any existing data to ensure clean slate
+          clearUIData();
+        }
+        
+      } catch (error) {
+        console.error('💥 Error fetching latest session for prepopulation:', error);
+        clearUIData();
+      }
+      
+      console.log(`🔄 === END NEW SESSION WITH PREPOPULATION ===`);
+      
+    } catch (error) {
+      console.error('💥 Fatal error in loadSessionDataWithPrepopulation:', error);
+      alert(`Error loading session: ${error.message}`);
+    }
+  };
+
+  // FIXED: 2. For existing sessions being edited (no prepopulation needed)
+  const loadExistingSession = async (sessionId) => {
+    try {
+      const token = getToken();
+      if (!token) {
+        console.log('❌ No auth token available');
+        return;
+      }
+
+      console.log(`🔄 === LOADING EXISTING SESSION ===`);
+      console.log(`🔄 Session ID: ${sessionId}`);
+      
+      try {
+        const response = await fetch(`http://localhost:5000/api/coaching-sessions/${sessionId}`, {
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+        });
+
+        console.log(`📡 Existing session response: ${response.status} ${response.statusText}`);
+
+        if (response.ok) {
+          const data = await response.json();
+          console.log('✅ Loaded existing session data:', data);
+          
+          // FIXED: Update session data with actual information from the loaded session
+          setSessionData(prev => ({
+            ...prev,
+            coachee: data.session.coachee?.name || 'Unknown',
+            isSelfCoaching: data.session.coach_id === data.session.coachee_id,
+            status: data.session.status
+          }));
+          
+          setIsEditable(data.isEditable);
+          
+          // For existing sessions, populate with the actual session data (not prepopulation)
+          populateUIWithData(data, false); // false = this is NOT prepopulation
+        } else {
+          const errorText = await response.text();
+          console.error('❌ Failed to load existing session:', errorText);
+        }
+      } catch (error) {
+        console.error('💥 Error loading existing session:', error);
+      }
+      
+    } catch (error) {
+      console.error('💥 Fatal error in loadExistingSession:', error);
+      alert(`Error loading session: ${error.message}`);
+    }
+  };
+
+  // 3. For manual session creation (fallback scenario)
+  const createNewSessionWithPrepopulation = async (coacheeId) => {
+    try {
+      const token = getToken();
+      if (!token) {
+        console.log('❌ No auth token available');
+        return;
+      }
+
+      console.log(`🔄 === CREATING NEW SESSION MANUALLY ===`);
+      console.log(`🔄 Coachee ID: ${coacheeId}`);
+      
+      try {
+        // Step 1: Create new session in database
+        console.log('⚡ Step 1: Creating new session...');
+        const createResponse = await fetch('http://localhost:5000/api/coaching-sessions', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            coachee_id: coacheeId,
+            framework_id: FRAMEWORK_ID,
+            session_date: new Date().toISOString().split('T')[0]
+          })
+        });
+
+        if (!createResponse.ok) {
+          const errorText = await createResponse.text();
+          console.error('❌ Failed to create session:', errorText);
+          return;
+        }
+
+        const newSession = await createResponse.json();
+        console.log('✅ New session created:', newSession.session_id);
+
+        // Step 2: Update sessionData with new sessionId
+        setSessionData(prev => ({ ...prev, sessionId: newSession.session_id }));
+
+        // Step 3: Load latest session data for prepopulation
+        await loadSessionDataWithPrepopulation(newSession.session_id, coacheeId);
+        
+      } catch (error) {
+        console.error('💥 Error in manual session creation:', error);
+        alert(`Error creating session: ${error.message}`);
+      }
+      
+    } catch (error) {
+      console.error('💥 Fatal error in createNewSessionWithPrepopulation:', error);
+      alert(`Error creating session: ${error.message}`);
+    }
+  };
+
+  // Helper function to clear UI data
+  const clearUIData = () => {
+    console.log('🧹 Clearing UI data for empty form');
+    setContext('');
+    setNotes({
+      keyObservations: '',
+      whatWentWell: '',
+      whatCouldBeImproved: '',
+      actionPlan: ''
+    });
+    setCheckedBehaviors(new Set());
+    setStepScores({});
+  };
+
+  // FIXED: Helper function to populate UI data 
+  const populateUIWithData = (data, isPrepopulation = false) => {
+    console.log('🎨 === POPULATING UI WITH DATA ===');
+    console.log('🎨 Input data:', data);
+    console.log('🎨 Is prepopulation:', isPrepopulation);
+    
+    // Clear existing state first to ensure clean slate
+    console.log('🧹 Clearing existing state...');
+    setContext('');
+    setNotes({
+      keyObservations: '',
+      whatWentWell: '',
+      whatCouldBeImproved: '',
+      actionPlan: ''
+    });
+    setCheckedBehaviors(new Set());
+    setStepScores({});
+    
+    // If this is prepopulation and no previous session data exists, don't populate
+    if (isPrepopulation && !data.session) {
+      console.log('🎨 No previous session data for prepopulation - UI will remain empty');
+      return;
+    }
+    
+    // For existing sessions OR prepopulation with data, load the content
+    const sessionToUse = data.session;
+    const notesToUse = data.notes;
+    const scoresToUse = data.scores;
+    
+    // Load context
+    let contextValue = '';
+    if (sessionToUse?.context) {
+      contextValue = sessionToUse.context;
+      console.log('🎨 Found context in session:', contextValue?.substring(0, 50) + '...');
+    } else if (notesToUse?.context) {
+      contextValue = notesToUse.context;
+      console.log('🎨 Found context in notes:', contextValue?.substring(0, 50) + '...');
+    }
+    
+    if (contextValue) {
+      setContext(contextValue);
+      console.log('✅ Context populated');
+    }
+
+    // Load notes
+    if (notesToUse) {
+      const populatedNotes = {
+        keyObservations: notesToUse.key_observations || '',
+        whatWentWell: notesToUse.what_went_well || '',
+        whatCouldBeImproved: notesToUse.improvements || '',
+        actionPlan: notesToUse.next_steps || ''
+      };
+      
+      setNotes(populatedNotes);
+      console.log('✅ Notes populated:', {
+        keyObservations: populatedNotes.keyObservations?.length || 0,
+        whatWentWell: populatedNotes.whatWentWell?.length || 0,
+        whatCouldBeImproved: populatedNotes.whatCouldBeImproved?.length || 0,
+        actionPlan: populatedNotes.actionPlan?.length || 0
+      });
+    }
+
+    // Load scores and step overrides
+    if (scoresToUse?.length > 0) {
+      const behaviorSet = new Set();
+      const stepOverrides = {};
+      
+      scoresToUse.forEach(score => {
+        if (score.behavior_id && score.checked) {
+          behaviorSet.add(score.behavior_id);
+        } else if (score.step_id && score.step_level) {
+          stepOverrides[score.step_id] = score.step_level;
+        }
+      });
+      
+      setCheckedBehaviors(behaviorSet);
+      setStepScores(stepOverrides);
+      
+      console.log('✅ Scores populated:', {
+        checkedBehaviors: behaviorSet.size,
+        stepOverrides: Object.keys(stepOverrides).length
+      });
+    }
+    
+    console.log('🎨 === UI POPULATION COMPLETE ===');
   };
 
   // Fetch framework data on component mount
@@ -238,10 +523,15 @@ export default function NewCoachingSession() {
     fetchFrameworkData();
   }, []);
 
-  // Auto-save session data
+  // Enhanced saveSession function
   const saveSession = async (showMessage = false) => {
+    console.log('🔄 === SAVE SESSION ATTEMPT ===');
+    console.log('🔄 Session ID:', sessionData?.sessionId);
+    console.log('🔄 Is Editable:', isEditable);
+    console.log('🔄 Has Token:', !!getToken());
+    
     if (!sessionData?.sessionId || !isEditable) {
-      console.log('Save skipped:', { 
+      console.log('❌ Save skipped:', { 
         hasSessionId: !!sessionData?.sessionId, 
         isEditable 
       });
@@ -251,7 +541,8 @@ export default function NewCoachingSession() {
     try {
       const token = getToken();
       if (!token) {
-        console.log('No auth token available');
+        console.log('❌ No auth token available');
+        alert('Authentication token missing. Please refresh the page.');
         return;
       }
 
@@ -264,6 +555,44 @@ export default function NewCoachingSession() {
         });
       });
 
+      // Calculate proficiencies using existing functions
+      const calculatedProficiencies = [];
+      
+      // Calculate step proficiencies
+      if (frameworkData?.steps) {
+        frameworkData.steps.forEach((step, index) => {
+          const stepProf = getStepProficiency(step);
+          calculatedProficiencies.push({
+            step_id: step.id,
+            step_number: index + 1,
+            proficiency_type: 'step',
+            level_name: stepProf.level,
+            is_manual: stepProf.isManual,
+            points_earned: stepProf.pointsEarned || 0,
+            total_possible: stepProf.totalPossible || 0,
+            percentage: stepProf.percentage || 0
+          });
+        });
+
+        // Calculate overall proficiency
+        const overallProf = getOverallProficiency();
+        
+        const totalPointsEarned = calculatedProficiencies.reduce((sum, step) => sum + (step.points_earned || 0), 0);
+        const totalPossiblePoints = calculatedProficiencies.reduce((sum, step) => sum + (step.total_possible || 0), 0);
+        const overallPercentage = totalPossiblePoints > 0 ? Math.round((totalPointsEarned / totalPossiblePoints) * 100) : 0;
+        
+        calculatedProficiencies.push({
+          step_id: null,
+          step_number: null,
+          proficiency_type: 'overall',
+          level_name: overallProf,
+          is_manual: false,
+          points_earned: totalPointsEarned,
+          total_possible: totalPossiblePoints,
+          percentage: overallPercentage
+        });
+      }
+
       const saveData = {
         context: context,
         notes: {
@@ -274,16 +603,23 @@ export default function NewCoachingSession() {
           actionPlan: notes.actionPlan
         },
         scores: scoresData,
-        stepScores: stepScores
+        stepScores: stepScores,
+        calculatedProficiencies: calculatedProficiencies
       };
 
-      console.log('Saving session data:', {
-        sessionId: sessionData.sessionId,
-        dataToSave: saveData,
-        url: `http://localhost:5000/api/coaching-sessions/${sessionData.sessionId}/save`
+      const saveUrl = `http://localhost:5000/api/coaching-sessions/${sessionData.sessionId}/save`;
+      console.log('🔄 Save URL:', saveUrl);
+      console.log('🔄 Save Data Summary:', {
+        context: saveData.context?.length || 0,
+        notesFields: Object.keys(saveData.notes).length,
+        scoresCount: saveData.scores?.length || 0,
+        stepScoresCount: Object.keys(saveData.stepScores || {}).length,
+        proficienciesCount: saveData.calculatedProficiencies?.length || 0
       });
+      console.log('🔄 Auth Token (first 20 chars):', token.substring(0, 20) + '...');
 
-      const response = await fetch(`http://localhost:5000/api/coaching-sessions/${sessionData.sessionId}/save`, {
+      console.log('🔄 Making fetch request...');
+      const response = await fetch(saveUrl, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -292,21 +628,45 @@ export default function NewCoachingSession() {
         body: JSON.stringify(saveData)
       });
 
-      console.log('Save response status:', response.status);
+      console.log('📡 === SAVE RESPONSE ===');
+      console.log('📡 Status:', response.status);
+      console.log('📡 Status Text:', response.statusText);
+      console.log('📡 OK:', response.ok);
       
       if (response.ok) {
-        const responseData = await response.json();
-        console.log('Save successful:', responseData);
-        if (showMessage) {
-          showAutoSave();
+        try {
+          const responseData = await response.json();
+          console.log('✅ Save successful:', responseData);
+          if (showMessage) {
+            showAutoSave();
+          }
+        } catch (parseError) {
+          console.log('✅ Save successful (no JSON response)');
+          if (showMessage) {
+            showAutoSave();
+          }
         }
       } else {
-        const errorData = await response.json();
-        console.error('Save failed:', errorData);
+        const errorText = await response.text();
+        console.error('❌ === SAVE FAILED ===');
+        console.error('❌ Status:', response.status);
+        console.error('❌ Response:', errorText);
+        
+        // Show user-friendly error
+        alert(`Save failed (${response.status}): ${errorText}`);
       }
     } catch (error) {
-      console.error('Error saving session:', error);
+      console.error('💥 === SAVE SESSION ERROR ===');
+      console.error('💥 Error type:', error.name);
+      console.error('💥 Error message:', error.message);
+      console.error('💥 Full error:', error);
+      console.error('💥 === END SAVE SESSION ERROR ===');
+      
+      // Show user-friendly error
+      alert(`Network error: ${error.message}. Please check if the backend server is running.`);
     }
+    
+    console.log('🔄 === END SAVE SESSION ATTEMPT ===');
   };
 
   // Submit session (lock it)
@@ -321,7 +681,7 @@ export default function NewCoachingSession() {
         return;
       }
 
-      // First save current data
+      // First save current data (now includes proficiencies)
       await saveSession();
 
       // Then submit the session
@@ -350,6 +710,39 @@ export default function NewCoachingSession() {
       alert('Failed to submit session. Please try again.');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // Delete session handler
+  const handleDeleteSession = async () => {
+    if (!sessionData?.sessionId) return;
+
+    try {
+      const token = getToken();
+      if (!token) {
+        alert('Authentication required');
+        return;
+      }
+
+      const response = await fetch(`http://localhost:5000/api/coaching-sessions/${sessionData.sessionId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        setShowDeleteConfirm(false);
+        alert('Session deleted successfully!');
+        router.push('/'); // Redirect to home after deletion
+      } else {
+        const errorData = await response.json();
+        alert(`Failed to delete session: ${errorData.error}`);
+      }
+    } catch (error) {
+      console.error('Error deleting session:', error);
+      alert('Failed to delete session. Please try again.');
     }
   };
 
