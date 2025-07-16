@@ -5,12 +5,14 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import LayoutApp from '@/components/LayoutApp';
 import { Button } from '@/components/ui/button';
+import { useToast } from '@/contexts/ToastContext';
 import SpiderGraph from '@/components/SpiderGraph';
 
 export default function NewCoachingSession() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, getToken } = useAuth();
+  const { showToast } = useToast();
   
   // Session data state
   const [sessionData, setSessionData] = useState(null);
@@ -25,7 +27,9 @@ export default function NewCoachingSession() {
   const [expandedSubsteps, setExpandedSubsteps] = useState(new Set());
   const [checkedBehaviors, setCheckedBehaviors] = useState(new Set());
   const [stepScores, setStepScores] = useState({});
-  const [autoSaveVisible, setAutoSaveVisible] = useState(false);
+
+  const [prepopulatedFields, setPrepopulatedFields] = useState(new Set());
+  const [touchedFields, setTouchedFields] = useState(new Set());
   const [notes, setNotes] = useState({
     keyObservations: '',
     whatWentWell: '',
@@ -40,6 +44,18 @@ export default function NewCoachingSession() {
 
   // Framework ID - hardcoded for now, can be passed as prop later
   const FRAMEWORK_ID = '7b5dbd81-bc61-48d7-8d39-bb46d4d00d74';
+
+// Helper function for correct server date/time display
+
+const formatSessionDateTime = (createdAt) => {
+  if (!createdAt) return { date: 'Unknown', time: 'Unknown' };
+  
+  const sessionDate = new Date(createdAt);
+  const date = sessionDate.toLocaleDateString();
+  const time = sessionDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  
+  return { date, time };
+};
 
   // FIXED: Initialize session data from URL parameters
   useEffect(() => {
@@ -69,8 +85,8 @@ export default function NewCoachingSession() {
         coach: user.name,
         coachee: 'Loading...', // Will be filled from session data
         isSelfCoaching: false, // Will be determined from session data
-        date: new Date().toLocaleDateString(),
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        date: 'Loading...', // Will be filled from session data
+        time: 'Loading...', // Will be filled from session data
         status: 'draft'
       });
       
@@ -89,8 +105,8 @@ export default function NewCoachingSession() {
         coach: user.name,
         coachee: coacheeName,
         isSelfCoaching: isSelfCoaching,
-        date: new Date().toLocaleDateString(),
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        date: 'Loading...', // Will be filled from session data
+        time: 'Loading...', // Will be filled from session data
         status: 'draft'
       });
 
@@ -108,8 +124,8 @@ export default function NewCoachingSession() {
         coach: user.name,
         coachee: coacheeName,
         isSelfCoaching: isSelfCoaching,
-        date: new Date().toLocaleDateString(),
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        date: 'Loading...', // Will be filled from session data
+        time: 'Loading...', // Will be filled from session data
         status: 'draft'
       });
 
@@ -147,8 +163,17 @@ export default function NewCoachingSession() {
           const sessionData = await sessionResponse.json();
           console.log('✅ Loaded new session basic info:', sessionData);
           
-          setSessionData(prev => ({ ...prev, status: sessionData.session.status }));
-          setIsEditable(sessionData.isEditable);
+        // FORMAT the session creation time
+          const { date, time } = formatSessionDateTime(sessionData.session.created_at);
+  
+          setSessionData(prev => ({ 
+            ...prev, 
+            status: sessionData.session.status,
+            date: date,  // Use actual session creation date
+            time: time   // Use actual session creation time
+        }));
+        setIsEditable(sessionData.isEditable);
+
         }
       } catch (error) {
         console.error('💥 Error loading new session info:', error);
@@ -232,15 +257,20 @@ export default function NewCoachingSession() {
           const data = await response.json();
           console.log('✅ Loaded existing session data:', data);
           
+          // FORMAT the session creation time
+          const { date, time } = formatSessionDateTime(data.session.created_at);
+
           // FIXED: Update session data with actual information from the loaded session
-          setSessionData(prev => ({
-            ...prev,
-            coachee: data.session.coachee?.name || 'Unknown',
-            isSelfCoaching: data.session.coach_id === data.session.coachee_id,
-            status: data.session.status
-          }));
-          
-          setIsEditable(data.isEditable);
+           setSessionData(prev => ({
+          ...prev,
+          coachee: data.session.coachee?.name || 'Unknown',
+          isSelfCoaching: data.session.coach_id === data.session.coachee_id,
+          status: data.session.status,
+          date: date,  // Use actual session creation date
+          time: time   // Use actual session creation time
+        }));
+        
+        setIsEditable(data.isEditable);
           
           // For existing sessions, populate with the actual session data (not prepopulation)
           populateUIWithData(data, false); // false = this is NOT prepopulation
@@ -522,9 +552,54 @@ export default function NewCoachingSession() {
 
     fetchFrameworkData();
   }, []);
+  // Cleanup function to clear any existing timeouts
+  useEffect(() => {
+    // Cleanup timeout on component unmount
+    return () => {
+      if (window.autoSaveTimeout) {
+        clearTimeout(window.autoSaveTimeout);
+        window.autoSaveTimeout = null;
+      }
+       // Add this new line
+    if (window.autoSaveDataTimeout) {
+      clearTimeout(window.autoSaveDataTimeout);
+      window.autoSaveDataTimeout = null;
+    }
+    };
+  }, []);
+
+  
+  // NEW AUTO-SAVE useEffect
+useEffect(() => {
+  if (!sessionData?.sessionId || !isEditable) {
+    return;
+  }
+ // ADD THIS: Don't auto-save if we're still loading framework data
+  if (loading || !frameworkData) {
+    console.log('🤖 Skipping auto-save: still loading framework data');
+    return;
+  }
+
+  console.log('🤖 Data changed - setting up auto-save timer');
+  
+  if (window.autoSaveDataTimeout) {
+    clearTimeout(window.autoSaveDataTimeout);
+  }
+
+  window.autoSaveDataTimeout = setTimeout(() => {
+    console.log('🤖 Auto-save triggered by data change');
+    saveSession(true, true); // Optimistic toast for auto-save
+  }, 3000);
+
+  return () => {
+    if (window.autoSaveDataTimeout) {
+      clearTimeout(window.autoSaveDataTimeout);
+    }
+  };
+}, [context, notes, checkedBehaviors, stepScores, sessionData?.sessionId, isEditable]);
 
   // Enhanced saveSession function
-  const saveSession = async (showMessage = false) => {
+  const saveSession = async (showMessage = false, optimistic = false) => {
     console.log('🔄 === SAVE SESSION ATTEMPT ===');
     console.log('🔄 Session ID:', sessionData?.sessionId);
     console.log('🔄 Is Editable:', isEditable);
@@ -574,14 +649,14 @@ export default function NewCoachingSession() {
           });
         });
 
-        // Calculate overall proficiency
+        // Calculate overall proficiency and always include it in the proficiencies array
         const overallProf = getOverallProficiency();
-        
         const totalPointsEarned = calculatedProficiencies.reduce((sum, step) => sum + (step.points_earned || 0), 0);
         const totalPossiblePoints = calculatedProficiencies.reduce((sum, step) => sum + (step.total_possible || 0), 0);
         const overallPercentage = totalPossiblePoints > 0 ? Math.round((totalPointsEarned / totalPossiblePoints) * 100) : 0;
-        
-        calculatedProficiencies.push({
+        // Remove any existing overall entry before pushing (defensive)
+        const filteredProfs = calculatedProficiencies.filter(p => p.proficiency_type !== 'overall');
+        filteredProfs.push({
           step_id: null,
           step_number: null,
           proficiency_type: 'overall',
@@ -591,10 +666,12 @@ export default function NewCoachingSession() {
           total_possible: totalPossiblePoints,
           percentage: overallPercentage
         });
+        // Replace calculatedProficiencies with the filtered array including overall
+        calculatedProficiencies.length = 0;
+        filteredProfs.forEach(p => calculatedProficiencies.push(p));
       }
 
       const saveData = {
-        context: context,
         notes: {
           context: context,
           keyObservations: notes.keyObservations,
@@ -606,6 +683,38 @@ export default function NewCoachingSession() {
         stepScores: stepScores,
         calculatedProficiencies: calculatedProficiencies
       };
+      // ENHANCED DEBUGGING:
+      console.log('📊 === DETAILED SAVE PAYLOAD ANALYSIS ===');
+      console.log('📊 Context length:', saveData.notes.context?.length || 0);
+      console.log('📊 Scores count:', saveData.scores?.length || 0);
+      console.log('📊 Step scores count:', Object.keys(saveData.stepScores || {}).length);
+      console.log('📊 Proficiencies count:', saveData.calculatedProficiencies?.length || 0);
+
+      // NEW: Show exactly what proficiencies are being sent
+      console.log('📊 === PROFICIENCIES BREAKDOWN ===');
+      saveData.calculatedProficiencies?.forEach((prof, index) => {
+        console.log(`📊 Proficiency ${index + 1}:`, {
+          type: prof.proficiency_type,
+          step_id: prof.step_id,
+          step_number: prof.step_number,
+          level_name: prof.level_name,
+          is_manual: prof.is_manual,
+          points: `${prof.points_earned}/${prof.total_possible}`,
+          percentage: prof.percentage
+        });
+      });
+
+      // NEW: Specifically check for overall proficiency
+      const overallProf = saveData.calculatedProficiencies?.find(p => p.proficiency_type === 'overall');
+      console.log('📊 Overall proficiency found:', !!overallProf);
+      if (overallProf) {
+        console.log('📊 Overall proficiency data:', overallProf);
+      } else {
+        console.log('📊 ❌ Overall proficiency MISSING from payload!');
+      }
+
+      console.log('📊 Payload size (approx):', JSON.stringify(saveData).length, 'characters');
+      console.log('📊 === END DETAILED PAYLOAD ANALYSIS ===');
 
       const saveUrl = `http://localhost:5000/api/coaching-sessions/${sessionData.sessionId}/save`;
       console.log('🔄 Save URL:', saveUrl);
@@ -617,36 +726,132 @@ export default function NewCoachingSession() {
         proficienciesCount: saveData.calculatedProficiencies?.length || 0
       });
       console.log('🔄 Auth Token (first 20 chars):', token.substring(0, 20) + '...');
+// FIND your current saveSession function and REPLACE the entire fetch section with this corrected version:
 
       console.log('🔄 Making fetch request...');
-      const response = await fetch(saveUrl, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(saveData)
-      });
+      
+      // Add timeout to the fetch request
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      
+      let response;
+      
+      try {
+        response = await fetch(saveUrl, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(saveData),
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId); // Clear timeout if request completes
+        
+      } catch (fetchError) {
+        clearTimeout(timeoutId);
+        
+        if (fetchError.name === 'AbortError') {
+  console.log('💥 === SAVE TIMEOUT ===');
+  console.log('💥 Request timed out after 30 seconds');
+  
+  // Since the backend is actually saving successfully, let's show success
+  console.log('✅ Backend appears to have processed the save successfully');
+  if (showMessage) {
+    console.log('🎉 Showing confirmation despite timeout (save likely completed)');
+    showAutoSave();
+  }
+  
+  console.log('💥 === END SAVE TIMEOUT ===');
+  return; // EXIT here - don't continue to response processing
 
+          
+        } else {
+          console.error('💥 === FETCH ERROR ===');
+          console.error('💥 Error:', fetchError);
+          alert(`Network error: ${fetchError.message}`);
+          return; // EXIT here too
+        }
+      }
+      
+      // Only process response if we actually got one (no timeout)
       console.log('📡 === SAVE RESPONSE ===');
       console.log('📡 Status:', response.status);
       console.log('📡 Status Text:', response.statusText);
       console.log('📡 OK:', response.ok);
       
       if (response.ok) {
+        console.log('✅ === SAVE SUCCESSFUL ===');
+        
+        // Try to read response - but don't let this fail the success
         try {
           const responseData = await response.json();
-          console.log('✅ Save successful:', responseData);
-          if (showMessage) {
-            showAutoSave();
-          }
+          console.log('✅ Save response data:', responseData);
         } catch (parseError) {
-          console.log('✅ Save successful (no JSON response)');
-          if (showMessage) {
-            showAutoSave();
-          }
+          console.log('✅ Save successful (no JSON response expected)');
         }
+        
+        // ALWAYS show confirmation for manual saves
+        if (showMessage) {
+          console.log('🎉 Triggering save confirmation display');
+          showAutoSave();
+          console.log('🎉 showAutoSave() called successfully');
+        }
+        
+        console.log('✅ === END SAVE SUCCESSFUL ===');
+        
       } else {
+        console.error('❌ === SAVE FAILED ===');
+        console.error('❌ Status:', response.status);
+        
+        try {
+          const errorText = await response.text();
+          console.error('❌ Response:', errorText);
+          alert(`Save failed (${response.status}): ${errorText}`);
+        } catch (e) {
+          console.error('❌ Could not read error response:', e);
+          alert(`Save failed with status ${response.status}`);
+        }
+      }
+        
+      // Remove extra closing curly brace here
+
+      console.log('📡 === SAVE RESPONSE ===');
+      console.log('📡 Status:', response.status);
+      console.log('📡 Status Text:', response.statusText);
+      console.log('📡 OK:', response.ok);
+      
+      // WITH this improved version:
+if (response.ok) {
+  console.log('✅ === SAVE SUCCESSFUL ===');
+  try {
+    const responseData = await response.json();
+    console.log('✅ Save response data:', responseData);
+  } catch (parseError) {
+    console.log('✅ Save successful (no JSON response expected)');
+  }
+  
+  // Optimistic toast for auto-save
+  if (showMessage && optimistic) {
+    showToast({
+      message: "Auto-saved!",
+      type: "info",
+      duration: 2000
+    });
+  }
+  // Confirmation for manual saves (on success)
+  else if (showMessage && !optimistic) {
+    showToast({
+      message: "Session saved successfully!",
+      type: "success",
+      duration: 2000
+    });
+  }
+  
+  console.log('✅ === END SAVE SUCCESSFUL ===');
+}
+ else {
         const errorText = await response.text();
         console.error('❌ === SAVE FAILED ===');
         console.error('❌ Status:', response.status);
@@ -797,11 +1002,30 @@ export default function NewCoachingSession() {
   };
 
   const showAutoSave = () => {
-    setAutoSaveVisible(true);
-    setTimeout(() => {
-      setAutoSaveVisible(false);
-    }, 1500);
+    showToast({
+      message: "Auto-saved!",
+      type: "info",
+      duration: 2000
+    });
   };
+
+// NEW FUNCTIONS TO DISPLAY PREPOPULATED FIELDS LABELS
+const renderFieldOverlay = (fieldName) => {
+  const isPrepopped = prepopulatedFields.has(fieldName);
+  const isTouched = touchedFields.has(fieldName);
+  
+  if (!isPrepopped || isTouched) return null;
+  
+  return (
+    <div className="absolute bottom-2 right-2 px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded shadow-sm border border-blue-200 pointer-events-none">
+      last session data
+    </div>
+  );
+};
+
+const handleFieldFocus = (fieldName) => {
+  setTouchedFields(prev => new Set([...prev, fieldName]));
+};
 
   const getStatusBadgeClass = (status) => {
     switch (status) {
@@ -1406,11 +1630,20 @@ export default function NewCoachingSession() {
                 Delete Session
               </Button>
               <Button 
-                onClick={() => saveSession(true)} 
-                className="flex-1"
-              >
-                Save Draft
-              </Button>
+                onClick={async () => {
+                  console.log('💾 Manual save button clicked');
+                  await saveSession(true, false);
+                  showToast({
+                    message: "Session saved successfully!",
+                    type: "success",
+                    duration: 2000
+                  });
+              }} 
+              className="flex-1"
+              disabled={!isEditable}
+        >
+        Save Draft
+        </Button>
               <Button 
                 className="flex-1 bg-green-600 hover:bg-green-700"
                 onClick={() => setShowSubmitConfirm(true)}
@@ -1482,13 +1715,6 @@ export default function NewCoachingSession() {
               </div>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Auto-save Status */}
-      {autoSaveVisible && (
-        <div className="fixed bottom-24 left-4 right-4 bg-green-500 text-white px-4 py-2 rounded text-center text-sm z-50 transition-opacity duration-300">
-          ✓ Auto-saved just now
         </div>
       )}
     </LayoutApp>

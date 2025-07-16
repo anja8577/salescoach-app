@@ -50,7 +50,7 @@ router.get('/history', requireAuth, async (req, res) => {
         framework:sales_frameworks(id, name),
         team:teams(id, name)
       `)
-      .eq('coach_id', user.id)
+      .or(`coach_id.eq.${user.id},coachee_id.eq.${user.id}`)
       .order('created_at', { ascending: false });
 
     if (sessionsError) throw sessionsError;
@@ -584,8 +584,22 @@ if (calculatedProficiencies && Array.isArray(calculatedProficiencies)) {
     console.log('✅ Deleted existing proficiencies');
   }
 
-  // Insert new proficiencies
-  const proficienciesData = calculatedProficiencies.map(prof => ({
+  // Backend safeguard: Remove duplicate step proficiencies for the same session/step_number/type
+  const proficienciesMap = new Map();
+  for (const prof of calculatedProficiencies) {
+    if (!prof.proficiency_type) continue;
+    if (prof.proficiency_type === 'overall') {
+      // Use a special key for overall proficiency
+      proficienciesMap.set('overall', prof);
+    } else if (prof.step_number) {
+      const key = `${prof.step_number}-${prof.proficiency_type}`;
+      proficienciesMap.set(key, prof);
+    }
+  }
+  
+  const uniqueProficiencies = Array.from(proficienciesMap.values());
+
+  const proficienciesData = uniqueProficiencies.map(prof => ({
     session_id: sessionId,
     step_id: prof.step_id,
     step_number: prof.step_number,
@@ -611,6 +625,9 @@ if (calculatedProficiencies && Array.isArray(calculatedProficiencies)) {
     console.log('✅ Proficiencies saved successfully:', insertedProfs?.length || 0);
   }
 }
+
+    // Send success response to client
+    res.status(200).json({ success: true });
 
   } catch (error) {
     console.error('Error saving session notes/scores:', error);
