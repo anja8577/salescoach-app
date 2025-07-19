@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import LayoutApp from '@/components/LayoutApp';
@@ -13,6 +13,7 @@ export default function NewCoachingSession() {
   const searchParams = useSearchParams();
   const { user, getToken } = useAuth();
   const { showToast } = useToast();
+  const autoSaveTimeoutRef = useRef(null);
   
   // Session data state
   const [sessionData, setSessionData] = useState(null);
@@ -91,6 +92,28 @@ const formatSessionDateTime = (createdAt) => {
       });
       
       loadExistingSession(sessionId);
+      return;
+    }
+
+    if (!sessionId && coacheeId) {
+      // SCENARIO 3: Brand new session from coachee selection
+      console.log('✨ SCENARIO: Brand new session - no prepopulation');
+      console.log(`✨ Coachee ID: ${coacheeId}`);
+      
+      setSessionData({
+        sessionId: null, // No session yet
+        coach: user.name,
+        coachee: coacheeName || 'Loading...', // Use coacheeName if provided
+        isSelfCoaching: isSelfCoaching,
+        date: new Date().toLocaleDateString(),
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        status: 'draft'
+      });
+
+      // If coacheeName is not in URL, you might need to fetch it
+      if (!coacheeName) {
+        fetchCoacheeDetails(coacheeId);
+      }
       return;
     }
 
@@ -353,7 +376,7 @@ const formatSessionDateTime = (createdAt) => {
     setStepScores({});
   };
 
-  // FIXED: Helper function to populate UI data 
+    // FIXED: Helper function to populate UI data 
   const populateUIWithData = (data, isPrepopulation = false) => {
     console.log('🎨 === POPULATING UI WITH DATA ===');
     console.log('🎨 Input data:', data);
@@ -374,6 +397,7 @@ const formatSessionDateTime = (createdAt) => {
     // If this is prepopulation and no previous session data exists, don't populate
     if (isPrepopulation && !data.session) {
       console.log('🎨 No previous session data for prepopulation - UI will remain empty');
+      setPrepopulatedFields(new Set()); // Clear prepopulated fields
       return;
     }
     
@@ -392,12 +416,17 @@ const formatSessionDateTime = (createdAt) => {
       console.log('🎨 Found context in notes:', contextValue?.substring(0, 50) + '...');
     }
     
+    // Track prepopulated context
+    const prepopFields = new Set();
+    if (isPrepopulation && contextValue) {
+      prepopFields.add('context');
+    }
     if (contextValue) {
       setContext(contextValue);
       console.log('✅ Context populated');
     }
 
-    // Load notes
+    // Load notes and track which fields are prepopulated
     if (notesToUse) {
       const populatedNotes = {
         keyObservations: notesToUse.key_observations || '',
@@ -405,6 +434,14 @@ const formatSessionDateTime = (createdAt) => {
         whatCouldBeImproved: notesToUse.improvements || '',
         actionPlan: notesToUse.next_steps || ''
       };
+      
+      // IMPORTANT: Track which fields have prepopulated data
+      if (isPrepopulation) {
+        if (populatedNotes.keyObservations) prepopFields.add('keyObservations');
+        if (populatedNotes.whatWentWell) prepopFields.add('whatWentWell');
+        if (populatedNotes.whatCouldBeImproved) prepopFields.add('whatCouldBeImproved');
+        if (populatedNotes.actionPlan) prepopFields.add('actionPlan');
+      }
       
       setNotes(populatedNotes);
       console.log('✅ Notes populated:', {
@@ -414,6 +451,10 @@ const formatSessionDateTime = (createdAt) => {
         actionPlan: populatedNotes.actionPlan?.length || 0
       });
     }
+
+    // Set prepopulated fields
+    setPrepopulatedFields(prepopFields);
+    console.log('✅ Prepopulated fields set:', Array.from(prepopFields));
 
     // Load scores and step overrides
     if (scoresToUse?.length > 0) {
@@ -556,15 +597,9 @@ const formatSessionDateTime = (createdAt) => {
   useEffect(() => {
     // Cleanup timeout on component unmount
     return () => {
-      if (window.autoSaveTimeout) {
-        clearTimeout(window.autoSaveTimeout);
-        window.autoSaveTimeout = null;
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
       }
-       // Add this new line
-    if (window.autoSaveDataTimeout) {
-      clearTimeout(window.autoSaveDataTimeout);
-      window.autoSaveDataTimeout = null;
-    }
     };
   }, []);
 
@@ -574,32 +609,38 @@ useEffect(() => {
   if (!sessionData?.sessionId || !isEditable) {
     return;
   }
- // ADD THIS: Don't auto-save if we're still loading framework data
+  // ADD THIS: Don't auto-save if we're still loading framework data
   if (loading || !frameworkData) {
     console.log('🤖 Skipping auto-save: still loading framework data');
     return;
   }
 
   console.log('🤖 Data changed - setting up auto-save timer');
-  
-  if (window.autoSaveDataTimeout) {
-    clearTimeout(window.autoSaveDataTimeout);
+
+  if (autoSaveTimeoutRef.current) {
+    clearTimeout(autoSaveTimeoutRef.current);
   }
 
-  window.autoSaveDataTimeout = setTimeout(() => {
+  autoSaveTimeoutRef.current = setTimeout(() => {
     console.log('🤖 Auto-save triggered by data change');
     saveSession(true, true); // Optimistic toast for auto-save
-  }, 3000);
+  }, 30000); // 30-second auto-save
 
   return () => {
-    if (window.autoSaveDataTimeout) {
-      clearTimeout(window.autoSaveDataTimeout);
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
     }
   };
-}, [context, notes, checkedBehaviors, stepScores, sessionData?.sessionId, isEditable]);
+}, [context, notes, checkedBehaviors, stepScores, sessionData?.sessionId, isEditable, loading, frameworkData]);
 
   // Enhanced saveSession function
   const saveSession = async (showMessage = false, optimistic = false) => {
+    // When manually saving, clear the auto-save timer
+    if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+        console.log('🤖 Auto-save timer cleared due to manual save');
+    }
+
     console.log('🔄 === SAVE SESSION ATTEMPT ===');
     console.log('🔄 Session ID:', sessionData?.sessionId);
     console.log('🔄 Is Editable:', isEditable);
@@ -1447,15 +1488,19 @@ const handleFieldFocus = (fieldName) => {
                 <label htmlFor="context" className="block text-sm font-medium text-gray-700">
                   Session Context
                 </label>
-                <textarea
-                  id="context"
-                  value={context}
-                  onChange={(e) => handleContextChange(e.target.value)}
-                  placeholder="Describe the context of this coaching session..."
-                  className={`w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none ${!isEditable ? 'bg-gray-100 cursor-not-allowed' : ''}`}
-                  rows={6}
-                  disabled={!isEditable}
-                />
+                <div className="relative">
+                  <textarea
+                    id="context"
+                    value={context}
+                    onChange={(e) => handleContextChange(e.target.value)}
+                    onFocus={() => handleFieldFocus('context')}
+                    placeholder="Describe the context of this coaching session..."
+                    className={`w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none ${!isEditable ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                    rows={6}
+                    disabled={!isEditable}
+                  />
+                  {renderFieldOverlay('context')}
+                </div>
               </div>
             </div>
           </div>
@@ -1559,7 +1604,7 @@ const handleFieldFocus = (fieldName) => {
         <div className="bg-white rounded-lg border border-gray-200 p-4">
           <h2 className="text-lg font-semibold mb-4 text-gray-900">Coaching Notes</h2>
           <div className="space-y-4">
-            <div>
+            <div className="relative">
               <label htmlFor="observations" className="block text-sm font-medium text-gray-700 mb-2">
                 Key Observations
               </label>
@@ -1567,13 +1612,15 @@ const handleFieldFocus = (fieldName) => {
                 id="observations"
                 value={notes.keyObservations}
                 onChange={(e) => handleNotesChange('keyObservations', e.target.value)}
+                onFocus={() => handleFieldFocus('keyObservations')}
                 placeholder="What did you observe during this interaction?"
                 className={`w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none ${!isEditable ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                 rows={3}
                 disabled={!isEditable}
               />
+              {renderFieldOverlay('keyObservations')}
             </div>
-            <div>
+            <div className="relative">
               <label htmlFor="strengths" className="block text-sm font-medium text-gray-700 mb-2">
                 What Went Well
               </label>
@@ -1581,13 +1628,15 @@ const handleFieldFocus = (fieldName) => {
                 id="strengths"
                 value={notes.whatWentWell}
                 onChange={(e) => handleNotesChange('whatWentWell', e.target.value)}
+                onFocus={() => handleFieldFocus('whatWentWell')}
                 placeholder="Positive aspects and strengths demonstrated..."
                 className={`w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none ${!isEditable ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                 rows={3}
                 disabled={!isEditable}
               />
+              {renderFieldOverlay('whatWentWell')}
             </div>
-            <div>
+            <div className="relative">
               <label htmlFor="improvements" className="block text-sm font-medium text-gray-700 mb-2">
                 What Could Be Improved
               </label>
@@ -1595,13 +1644,15 @@ const handleFieldFocus = (fieldName) => {
                 id="improvements"
                 value={notes.whatCouldBeImproved}
                 onChange={(e) => handleNotesChange('whatCouldBeImproved', e.target.value)}
+                onFocus={() => handleFieldFocus('whatCouldBeImproved')}
                 placeholder="Areas for development and improvement..."
                 className={`w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none ${!isEditable ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                 rows={3}
                 disabled={!isEditable}
               />
+              {renderFieldOverlay('whatCouldBeImproved')}
             </div>
-            <div>
+            <div className="relative">
               <label htmlFor="actionPlan" className="block text-sm font-medium text-gray-700 mb-2">
                 Action Plan / Next Steps
               </label>
@@ -1609,11 +1660,13 @@ const handleFieldFocus = (fieldName) => {
                 id="actionPlan"
                 value={notes.actionPlan}
                 onChange={(e) => handleNotesChange('actionPlan', e.target.value)}
+                onFocus={() => handleFieldFocus('actionPlan')}
                 placeholder="Recommended actions and follow-up..."
                 className={`w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none ${!isEditable ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                 rows={3}
                 disabled={!isEditable}
               />
+              {renderFieldOverlay('actionPlan')}
             </div>
           </div>
         </div>

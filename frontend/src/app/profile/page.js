@@ -151,7 +151,7 @@ export default function Profile() {
   };
 
   const handleAccessAdmin = () => {
-    window.location.href = "/admin/frameworks";
+    window.location.href = "/admin";
   };
 
   // Keep the rest of your component exactly the same...
@@ -379,7 +379,7 @@ export default function Profile() {
                 className="w-full bg-purple-600 hover:bg-purple-700 text-white h-12 text-base font-semibold"
               >
                 <Settings className="w-5 h-5 mr-2" />
-                Access Admin Module
+                Access Admin Panel
               </Button>
             </CardContent>
           </Card>

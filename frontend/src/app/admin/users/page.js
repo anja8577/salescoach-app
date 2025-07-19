@@ -10,6 +10,8 @@ import { useAuth } from '@/contexts/AuthContext';
 
 export default function AdminUsers() {
   const { user: currentUser } = useAuth();
+  // ...existing state...
+  const [deleteConfirmed, setDeleteConfirmed] = useState(false); // NEW
   
   // State management
   const [users, setUsers] = useState([]);
@@ -493,10 +495,14 @@ export default function AdminUsers() {
                   <input
                     id="delete-user"
                     type="checkbox"
-                    checked={false}
-                    onChange={(e) => {
+                    checked={deleteConfirmed}
+                    onChange={async (e) => {
                       if (e.target.checked) {
-                        handleDeleteUser(editingUser.id, editingUser.name);
+                        if (window.confirm(`Are you sure you want to delete user "${editingUser.name}"? This action cannot be undone.`)) {
+                          setDeleteConfirmed(true);
+                        }
+                      } else {
+                        setDeleteConfirmed(false);
                       }
                     }}
                     className="h-4 w-4 text-red-600 rounded border-gray-300"
@@ -506,16 +512,53 @@ export default function AdminUsers() {
                 </div>
               </div>
               <div className="flex gap-3 pt-4">
-                <Button 
-                  type="submit" 
-                  disabled={actionLoading}
-                  className="flex-1 bg-orange-600 hover:bg-orange-700"
-                >
-                  {actionLoading ? 'Updating...' : 'Update User'}
-                </Button>
+                {deleteConfirmed ? (
+                  <Button
+                    type="button"
+                    disabled={actionLoading}
+                    className="flex-1 bg-red-600 hover:bg-red-700"
+                    onClick={async () => {
+                      setActionLoading(true);
+                      try {
+                        const response = await apiCall(`/api/admin/users/${editingUser.id}`, {
+                          method: 'DELETE'
+                        });
+                        const data = await response.json();
+                        if (response.ok) {
+                          showMessage('User deleted successfully!');
+                          setShowEditModal(false);
+                          setEditingUser(null);
+                          setEditForm({ name: '', email: '', isAdmin: false, newPassword: '' });
+                          fetchUsers();
+                        } else {
+                          showMessage(data.error || 'Failed to delete user', 'error');
+                        }
+                      } catch (error) {
+                        console.error('Error deleting user:', error);
+                        showMessage('Error deleting user', 'error');
+                      } finally {
+                        setActionLoading(false);
+                        setDeleteConfirmed(false);
+                      }
+                    }}
+                  >
+                    {actionLoading ? 'Deleting...' : 'Delete User'}
+                  </Button>
+                ) : (
+                  <Button
+                    type="submit"
+                    disabled={actionLoading}
+                    className="flex-1 bg-orange-600 hover:bg-orange-700"
+                  >
+                    {actionLoading ? 'Updating...' : 'Update User'}
+                  </Button>
+                )}
                 <Button 
                   type="button" 
-                  onClick={() => setShowEditModal(false)}
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setDeleteConfirmed(false);
+                  }}
                   className="flex-1 bg-gray-500 hover:bg-gray-600"
                 >
                   Cancel

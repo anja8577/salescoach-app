@@ -20,7 +20,7 @@ export default function LoginPage() {
   // Redirect if already logged in
   useEffect(() => {
     if (user) {
-      router.push('/profile');
+      router.push('/');
     }
   }, [user, router]);
 

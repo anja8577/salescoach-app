@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const supabase = require('../supabaseClient');
 const { requireAuth } = require('../middleware/auth');
+const path = require('path');
+const { generateSessionReportPDF, generateSessionReportPDFWithCustomName } = require('../utils/pdfGenerator'); // Updated import
 
 // Get all sessions for the authenticated user
 router.get('/', requireAuth, async (req, res) => {
@@ -365,12 +367,14 @@ router.post('/', requireAuth, async (req, res) => {
   }
 });
 
-// Update session status (submit/draft)
+// Update session status (submit/draft) - WITH PDF GENERATION ON SUBMIT
 router.patch('/:sessionId/status', requireAuth, async (req, res) => {
   try {
     const { user } = req;
     const { sessionId } = req.params;
     const { status } = req.body;
+
+    console.log(`🎯 Status update requested: ${status} for session: ${sessionId}`);
 
     // Validate status
     const validStatuses = ['draft', 'submitted'];
@@ -410,6 +414,89 @@ router.patch('/:sessionId/status', requireAuth, async (req, res) => {
       .single();
 
     if (updateError) throw updateError;
+
+ // UPDATED SECTION: PDF Generation when session is submitted
+// Replace the PDF generation section in your coachingSessions.js file
+
+// 🆕 NEW: Generate PDF Report when session is submitted
+if (status === 'submitted') {
+  console.log('🎯 Session submitted - starting PDF report generation...');
+  
+  try {
+    // Gather all data needed for the PDF report
+    const reportData = await gatherReportData(sessionId);
+    
+    // CRITICAL: Ensure we have coachee name and date
+    console.log('🔍 Debug reportData structure:');
+    console.log('  - Session ID:', reportData.session?.id);
+    console.log('  - Coachee name:', reportData.session?.coachee?.name);
+    console.log('  - Session date:', reportData.session?.session_date);
+    console.log('  - Coach name:', reportData.session?.coach?.name);
+    
+    // Define reports directory
+    const reportsDir = path.join(__dirname, '..', 'reports');
+    
+    // Generate custom filename with MORE robust error handling
+    let coacheeName = 'Unknown-Coachee';
+    let sessionDate = 'Unknown-Date';
+    
+    if (reportData.session?.coachee?.name) {
+      coacheeName = reportData.session.coachee.name.trim();
+      console.log('✅ Coachee name found:', coacheeName);
+    } else {
+      console.log('⚠️ Warning: No coachee name found in reportData');
+    }
+    
+    if (reportData.session?.session_date) {
+      // Format date as YYYY-MM-DD for filename safety
+      const dateObj = new Date(reportData.session.session_date);
+      sessionDate = dateObj.toISOString().split('T')[0]; // Gets YYYY-MM-DD
+      console.log('✅ Session date found and formatted:', sessionDate);
+    } else {
+      console.log('⚠️ Warning: No session date found in reportData');
+    }
+    
+    // Format filename - be more aggressive about cleaning characters
+    const safeCoacheeName = coacheeName
+      .replace(/[^a-zA-Z0-9\s]/g, '') // Remove special chars except spaces
+      .replace(/\s+/g, '-') // Replace spaces with hyphens
+      .substring(0, 30); // Limit length
+    
+    const safeSessionDate = sessionDate.replace(/[^a-zA-Z0-9-]/g, '');
+    
+    const customFilename = `Coaching-Session-Report-${safeCoacheeName}-${safeSessionDate}.pdf`;
+    
+    console.log('🎯 Generated custom filename:', customFilename);
+    console.log('🎯 Safe coachee name:', safeCoacheeName);
+    console.log('🎯 Safe session date:', safeSessionDate);
+    
+    // Generate the PDF with custom filename
+    const pdfPath = await generateSessionReportPDFWithCustomName(reportData, reportsDir, customFilename);
+    
+    console.log('📄 PDF generated at path:', pdfPath);
+    
+    // Update the session with the PDF path - store the FULL path
+    const { error: pdfUpdateError } = await supabase
+      .from('coaching_sessions')
+      .update({ 
+        report_pdf_path: pdfPath, // Store full path
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', sessionId);
+
+    if (pdfUpdateError) {
+      console.error('❌ Error updating PDF path in database:', pdfUpdateError);
+      // Don't throw here - the status update succeeded
+    } else {
+      console.log('✅ PDF path saved to database:', pdfPath);
+    }
+    
+  } catch (pdfError) {
+    console.error('❌ PDF generation failed:', pdfError);
+    console.error('❌ PDF error stack:', pdfError.stack);
+    // Don't throw here - status update should succeed even if PDF fails
+  }
+}
 
     res.json({ 
       message: `Session ${status} successfully`,
@@ -462,169 +549,172 @@ router.put('/:sessionId/save', requireAuth, async (req, res) => {
     }
 
     // Handle session notes with insert/update logic
-if (notes) {
-  console.log('Saving notes:', notes);
-  
-  // First check if notes exist for this session
-  const { data: existingNotes, error: checkError } = await supabase
-    .from('session_notes')
-    .select('id')
-    .eq('session_id', sessionId)
-    .single();
+    if (notes) {
+      console.log('Saving notes:', notes);
+      
+      // First check if notes exist for this session
+      const { data: existingNotes, error: checkError } = await supabase
+        .from('session_notes')
+        .select('id')
+        .eq('session_id', sessionId)
+        .single();
 
-  const notesData = {
-    session_id: sessionId,
-    context: notes.context || null,
-    key_observations: notes.keyObservations || null,
-    what_went_well: notes.whatWentWell || null,
-    improvements: notes.whatCouldBeImproved || null,
-    next_steps: notes.actionPlan || null,
-    updated_at: new Date().toISOString()
-  };
-
-  let notesError;
-  
-  if (existingNotes) {
-    // Update existing notes
-    console.log('Updating existing notes');
-    const { error } = await supabase
-      .from('session_notes')
-      .update(notesData)
-      .eq('session_id', sessionId);
-    notesError = error;
-  } else {
-    // Insert new notes
-    console.log('Inserting new notes');
-    const { error } = await supabase
-      .from('session_notes')
-      .insert([notesData]);
-    notesError = error;
-  }
-
-  if (notesError) {
-    console.error('Notes save error:', notesError);
-    throw notesError;
-  }
-  console.log('Notes saved successfully');
-}
-
-// Handle all session scores (both behavior scores and step overrides)
-console.log('Saving behavior scores:', scores);
-console.log('Saving step overrides:', stepScores);
-
-// Delete all existing scores for this session
-const { error: deleteError } = await supabase
-  .from('session_scores')
-  .delete()
-  .eq('session_id', sessionId);
-
-if (deleteError) {
-  console.error('Error deleting existing scores:', deleteError);
-  throw deleteError;
-}
-
-const allScoresData = [];
-
-// Add behavior scores (checked behaviors)
-if (scores && Array.isArray(scores)) {
-  scores.forEach(score => {
-    allScoresData.push({
-      session_id: sessionId,
-      behavior_id: score.behavior_id,
-      checked: score.checked,
-      step_level: null // Behavior scores don't have step_level
-    });
-  });
-}
-
-// Add step-level manual overrides
-if (stepScores && Object.keys(stepScores).length > 0) {
-  Object.entries(stepScores).forEach(([stepId, level]) => {
-    if (level && level !== 'Auto-Calculate') {
-      allScoresData.push({
+      const notesData = {
         session_id: sessionId,
-        behavior_id: null,
-        checked: null,
-        step_level: level,
-        step_id: stepId // ← Add the step reference
+        context: notes.context || null,
+        key_observations: notes.keyObservations || null,
+        what_went_well: notes.whatWentWell || null,
+        improvements: notes.whatCouldBeImproved || null,
+        next_steps: notes.actionPlan || null,
+        updated_at: new Date().toISOString()
+      };
+
+      let notesError;
+      
+      if (existingNotes) {
+        // Update existing notes
+        console.log('Updating existing notes');
+        const { error } = await supabase
+          .from('session_notes')
+          .update(notesData)
+          .eq('session_id', sessionId);
+        notesError = error;
+      } else {
+        // Insert new notes
+        console.log('Inserting new notes');
+        const { error } = await supabase
+          .from('session_notes')
+          .insert([notesData]);
+        notesError = error;
+      }
+
+      if (notesError) {
+        console.error('Notes save error:', notesError);
+        throw notesError;
+      }
+      console.log('Notes saved successfully');
+    }
+
+    // Handle all session scores (both behavior scores and step overrides)
+    console.log('Saving behavior scores:', scores);
+    console.log('Saving step overrides:', stepScores);
+
+    // Delete all existing scores for this session
+    const { error: deleteError } = await supabase
+      .from('session_scores')
+      .delete()
+      .eq('session_id', sessionId);
+
+    if (deleteError) {
+      console.error('Error deleting existing scores:', deleteError);
+      throw deleteError;
+    }
+
+    const allScoresData = [];
+
+    // Add behavior scores (checked behaviors)
+    if (scores && Array.isArray(scores)) {
+      scores.forEach(score => {
+        allScoresData.push({
+          session_id: sessionId,
+          behavior_id: score.behavior_id,
+          checked: score.checked,
+          step_level: null // Behavior scores don't have step_level
+        });
       });
     }
-  });
-}
 
-// Insert all scores at once
-if (allScoresData.length > 0) {
-  console.log('Inserting all scores data:', allScoresData);
-  const { error: scoresError } = await supabase
-    .from('session_scores')
-    .insert(allScoresData);
-
-  if (scoresError) {
-    console.error('Scores save error:', scoresError);
-    throw scoresError;
-  }
-  console.log('All scores saved successfully');
-} else {
-  console.log('No scores to save');
-}
-// NEW: Handle calculated proficiencies
-if (calculatedProficiencies && Array.isArray(calculatedProficiencies)) {
-  console.log('Saving calculated proficiencies:', calculatedProficiencies.length);
-
-  // Delete existing proficiencies for this session
-  const { error: deleteProficienciesError } = await supabase
-    .from('session_proficiencies')
-    .delete()
-    .eq('session_id', sessionId);
-
-  if (deleteProficienciesError) {
-    console.error('❌ Error deleting existing proficiencies:', deleteProficienciesError);
-    throw deleteProficienciesError;
-  } else {
-    console.log('✅ Deleted existing proficiencies');
-  }
-
-  // Backend safeguard: Remove duplicate step proficiencies for the same session/step_number/type
-  const proficienciesMap = new Map();
-  for (const prof of calculatedProficiencies) {
-    if (!prof.proficiency_type) continue;
-    if (prof.proficiency_type === 'overall') {
-      // Use a special key for overall proficiency
-      proficienciesMap.set('overall', prof);
-    } else if (prof.step_number) {
-      const key = `${prof.step_number}-${prof.proficiency_type}`;
-      proficienciesMap.set(key, prof);
+    // Add step-level manual overrides
+    if (stepScores && Object.keys(stepScores).length > 0) {
+      Object.entries(stepScores).forEach(([stepId, level]) => {
+        if (level && level !== 'Auto-Calculate') {
+          allScoresData.push({
+            session_id: sessionId,
+            behavior_id: null,
+            checked: null,
+            step_level: level,
+            step_id: stepId // Add the step reference
+          });
+        }
+      });
     }
-  }
-  
-  const uniqueProficiencies = Array.from(proficienciesMap.values());
 
-  const proficienciesData = uniqueProficiencies.map(prof => ({
-    session_id: sessionId,
-    step_id: prof.step_id,
-    step_number: prof.step_number,
-    proficiency_type: prof.proficiency_type,
-    level_name: prof.level_name,
-    is_manual: prof.is_manual,
-    points_earned: prof.points_earned,
-    total_possible: prof.total_possible,
-    percentage: prof.percentage,
-    calculated_at: new Date().toISOString()
-  }));
+    // Insert all scores at once
+    if (allScoresData.length > 0) {
+      console.log('Inserting all scores data:', allScoresData);
+      const { error: scoresError } = await supabase
+        .from('session_scores')
+        .insert(allScoresData);
 
-  console.log('📝 Inserting proficiencies:', proficienciesData.length);
-  const { data: insertedProfs, error: proficienciesError } = await supabase
-    .from('session_proficiencies')
-    .insert(proficienciesData)
-    .select();
+      if (scoresError) {
+        console.error('Scores save error:', scoresError);
+        throw scoresError;
+      }
+      console.log('All scores saved successfully');
+    } else {
+      console.log('No scores to save');
+    }
 
-  if (proficienciesError) {
-    console.error('❌ Proficiencies save error:', proficienciesError);
-    throw proficienciesError;
-  } else {
-    console.log('✅ Proficiencies saved successfully:', insertedProfs?.length || 0);
-  }
-}
+    // Handle calculated proficiencies
+    if (calculatedProficiencies && Array.isArray(calculatedProficiencies)) {
+      console.log('Saving calculated proficiencies:', calculatedProficiencies.length);
+
+      // Delete existing proficiencies for this session
+      const { error: deleteProficienciesError } = await supabase
+        .from('session_proficiencies')
+        .delete()
+        .eq('session_id', sessionId);
+
+      if (deleteProficienciesError) {
+        console.error('❌ Error deleting existing proficiencies:', deleteProficienciesError);
+        throw deleteProficienciesError;
+      } else {
+        console.log('✅ Deleted existing proficiencies');
+      }
+
+      // Backend safeguard: Remove duplicate step proficiencies for the same session/step_number/type
+      const proficienciesMap = new Map();
+      for (const prof of calculatedProficiencies) {
+        if (!prof.proficiency_type) continue;
+        if (prof.proficiency_type === 'overall') {
+          // Use a special key for overall proficiency
+          proficienciesMap.set('overall', prof);
+        } else if (prof.step_number) {
+          const key = `${prof.step_number}-${prof.proficiency_type}`;
+          proficienciesMap.set(key, prof);
+        }
+      }
+      
+      const uniqueProficiencies = Array.from(proficienciesMap.values());
+
+      const proficienciesData = uniqueProficiencies.map(prof => ({
+        session_id: sessionId,
+        step_id: prof.step_id,
+        step_number: prof.step_number,
+        proficiency_type: prof.proficiency_type,
+        level_name: prof.level_name,
+        is_manual: prof.is_manual,
+        points_earned: prof.points_earned,
+        total_possible: prof.total_possible,
+        percentage: prof.percentage,
+        calculated_at: new Date().toISOString()
+      }));
+
+      console.log('📝 Inserting proficiencies:', proficienciesData.length);
+      const { data: insertedProfs, error: proficienciesError } = await supabase
+        .from('session_proficiencies')
+        .insert(proficienciesData)
+        .select();
+
+      if (proficienciesError) {
+        console.error('❌ Proficiencies save error:', proficienciesError);
+        throw proficienciesError;
+      }
+      
+      console.log('✅ Proficiencies saved successfully');
+    }
+
+
 
     // Send success response to client
     res.status(200).json({ success: true });
@@ -637,6 +727,254 @@ if (calculatedProficiencies && Array.isArray(calculatedProficiencies)) {
     });
   }
 });
+
+// UPDATED gatherReportData function with enhanced debugging
+// Replace the existing gatherReportData function in your coachingSessions.js
+
+async function gatherReportData(sessionId) {
+  console.log('📊 === ENHANCED GATHERING REPORT DATA ===');
+  console.log('📊 Session ID:', sessionId);
+  
+  // Get session with all related data - MORE EXPLICIT JOIN
+  const { data: session, error: sessionError } = await supabase
+    .from('coaching_sessions')
+    .select(`
+      id,
+      coach_id,
+      coachee_id,
+      team_id,
+      framework_id,
+      session_date,
+      context,
+      status,
+      created_at,
+      updated_at,
+      coach:users!coach_id(id, name, email),
+      coachee:users!coachee_id(id, name, email),
+      framework:sales_frameworks(id, name)
+    `)
+    .eq('id', sessionId)
+    .single();
+
+  if (sessionError || !session) {
+    console.log('❌ Session error:', sessionError);
+    throw new Error('Session not found: ' + sessionError?.message);
+  }
+
+  // ENHANCED: Debug session data structure
+  console.log('📊 === SESSION DATA DEBUG ===');
+  console.log('📊 Raw session object keys:', Object.keys(session));
+  console.log('📊 Session ID:', session.id);
+  console.log('📊 Coach ID:', session.coach_id);
+  console.log('📊 Coachee ID:', session.coachee_id);
+  console.log('📊 Session date:', session.session_date);
+  console.log('📊 Framework ID:', session.framework_id);
+  
+  console.log('📊 === COACH DATA DEBUG ===');
+  console.log('📊 Coach object:', session.coach);
+  console.log('📊 Coach name:', session.coach?.name);
+  console.log('📊 Coach email:', session.coach?.email);
+  
+  console.log('📊 === COACHEE DATA DEBUG ===');
+  console.log('📊 Coachee object:', session.coachee);
+  console.log('📊 Coachee name:', session.coachee?.name);
+  console.log('📊 Coachee email:', session.coachee?.email);
+  
+  console.log('📊 === FRAMEWORK DATA DEBUG ===');
+  console.log('📊 Framework object:', session.framework);
+  console.log('📊 Framework name:', session.framework?.name);
+
+  // If coachee name is missing, try a direct query
+  if (!session.coachee?.name) {
+    console.log('⚠️ Coachee name missing, trying direct query...');
+    const { data: coacheeData, error: coacheeError } = await supabase
+      .from('users')
+      .select('id, name, email')
+      .eq('id', session.coachee_id)
+      .single();
+    
+    if (coacheeData) {
+      console.log('📊 Direct coachee query result:', coacheeData);
+      // Patch the session object
+      session.coachee = coacheeData;
+    } else {
+      console.log('❌ Direct coachee query failed:', coacheeError);
+    }
+  }
+
+  // Get session notes - ENHANCED with error handling
+  const { data: notes, error: notesError } = await supabase
+    .from('session_notes')
+    .select('*')
+    .eq('session_id', sessionId)
+    .single();
+
+  if (notesError && notesError.code !== 'PGRST116') { // PGRST116 = no rows found
+    console.log('❌ Error fetching notes (not "no rows"):', notesError);
+  } else if (notesError?.code === 'PGRST116') {
+    console.log('📝 No session notes found for session:', sessionId);
+  } else {
+    console.log('📝 Session notes found, context length:', notes?.context?.length || 0);
+  }
+
+  // Get session scores
+  const { data: scores, error: scoresError } = await supabase
+    .from('session_scores')
+    .select('*')
+    .eq('session_id', sessionId);
+
+  if (scoresError) {
+    console.log('❌ Error fetching scores:', scoresError);
+  }
+
+  // Get proficiencies
+  const { data: proficiencies, error: proficienciesError } = await supabase
+    .from('session_proficiencies')
+    .select('*')
+    .eq('session_id', sessionId)
+    .order('step_number');
+
+  if (proficienciesError) {
+    console.log('❌ Error fetching proficiencies:', proficienciesError);
+  }
+
+  // Get framework steps
+  const { data: frameworkSteps, error: stepsError } = await supabase
+    .from('framework_steps')
+    .select('*')
+    .eq('framework_id', session.framework_id)
+    .order('step_number');
+
+  if (stepsError) {
+    console.log('❌ Error fetching framework steps:', stepsError);
+  }
+
+  // Get all framework data needed for proper behavior organization
+  let allBehaviors = [];
+  let substeps = [];
+  let behaviorLevels = [];
+  
+  if (frameworkSteps && frameworkSteps.length > 0) {
+    // Get substeps for the framework
+    const { data: frameworkSubsteps, error: substepsError } = await supabase
+      .from('framework_substeps')
+      .select('*')
+      .eq('framework_id', session.framework_id);
+    
+    if (substepsError) {
+      console.log('❌ Error fetching framework substeps:', substepsError);
+    } else {
+      substeps = frameworkSubsteps || [];
+    }
+
+    // Get all behaviors for the framework WITH their level information
+    const { data: frameworkBehaviors, error: behaviorError } = await supabase
+      .from('framework_behaviors')
+      .select(`
+        *,
+        level:behavior_levels(level_name, point_value)
+      `)
+      .eq('framework_id', session.framework_id);
+    
+    if (behaviorError) {
+      console.log('❌ Error fetching framework behaviors:', behaviorError);
+    } else {
+      allBehaviors = frameworkBehaviors || [];
+    }
+
+    // Get behavior levels for proper ordering
+    const { data: levels, error: levelsError } = await supabase
+      .from('behavior_levels')
+      .select('*')
+      .eq('framework_id', session.framework_id)
+      .order('point_value');
+    
+    if (levelsError) {
+      console.log('❌ Error fetching behavior levels:', levelsError);
+    } else {
+      behaviorLevels = levels || [];
+    }
+  }
+
+  console.log(`📊 Found ${frameworkSteps?.length || 0} framework steps`);
+  console.log(`📊 Found ${substeps?.length || 0} framework substeps`);
+  console.log(`📊 Found ${allBehaviors?.length || 0} framework behaviors`);
+  console.log(`📊 Found ${behaviorLevels?.length || 0} behavior levels`);
+  console.log(`📊 Found ${scores?.length || 0} session scores`);
+  console.log(`📊 Found ${proficiencies?.length || 0} proficiencies`);
+
+  // Process step proficiencies with sub-steps showing behaviors with level prefixes
+  const stepProficiencies = frameworkSteps?.map(step => {
+    const stepProf = proficiencies?.find(p => p.step_number === step.step_number && p.proficiency_type === 'step');
+    
+    // Get substeps for this step
+    const stepSubsteps = substeps.filter(substep => substep.step_id === step.id);
+    
+    // Group by substep, add level prefixes to behaviors
+    const substepGroups = [];
+    
+    stepSubsteps.forEach(substep => {
+      // Get behaviors for this specific substep
+      const substepBehaviors = allBehaviors.filter(behavior => behavior.substep_id === substep.id);
+      
+      if (substepBehaviors.length > 0) {
+        // Sort behaviors by level (L1, L2, L3, L4) and add prefixes
+        const behaviorsWithPrefixes = substepBehaviors
+          .sort((a, b) => {
+            const aLevel = a.level?.point_value || 0;
+            const bLevel = b.level?.point_value || 0;
+            return aLevel - bLevel;
+          })
+          .map(behavior => {
+            // Find if this behavior was scored in the session
+            const scoreRecord = scores?.find(s => s.behavior_id === behavior.id);
+            
+            // Get level prefix (L1, L2, L3, L4)
+            const levelValue = behavior.level?.point_value || 1;
+            const levelPrefix = `L${levelValue}`;
+            
+            return {
+              text: `${levelPrefix}. ${behavior.description || 'No description'}`,
+              checked: scoreRecord ? scoreRecord.checked : false
+            };
+          });
+
+        substepGroups.push({
+          group_name: substep.name, // Sub-step name as group header
+          items: behaviorsWithPrefixes
+        });
+      }
+    });
+
+    console.log(`📊 Step ${step.step_number} (${step.name}): ${substepGroups.length} substeps with behaviors`);
+
+    return {
+      step_number: step.step_number,
+      step_name: step.name,
+      level_name: stepProf?.level_name || 'Not Evaluated',
+      behaviors: substepGroups  // Now organized by substep with level prefixes
+    };
+  }) || [];
+
+  // Get overall proficiency
+  const overallProf = proficiencies?.find(p => p.proficiency_type === 'overall');
+
+  // FINAL DEBUG: Verify coachee name is available
+  console.log('📊 === FINAL VERIFICATION ===');
+  console.log('📊 Final session.coachee?.name:', session.coachee?.name);
+  console.log('📊 Final session.session_date:', session.session_date);
+  console.log('📊 Overall proficiency:', overallProf?.level_name);
+  console.log('📊 Step proficiencies count:', stepProficiencies.length);
+  console.log('📊 === END REPORT DATA GATHERING ===');
+  
+  return {
+    session,
+    notes: notes || {},
+    session_scores: scores || [], // Include session_scores for template
+    stepProficiencies,
+    overallProficiency: overallProf?.level_name || 'Not Evaluated'
+  };
+}
 
 // Delete a coaching session (only drafts)
 router.delete('/:sessionId', requireAuth, async (req, res) => {

@@ -108,8 +108,8 @@ export const AuthProvider = ({ children }) => {
         setStoredUser(data.user);
         setUser(data.user);
         
-        // Everyone goes to profile page after login
-        router.push('/profile');
+        // Everyone goes to home page after login
+        router.push('/');
         
         return { success: true };
       } else {

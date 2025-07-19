@@ -66,7 +66,7 @@ console.log('=== /api/coaching-sessions ROUTE REGISTERED ===');
 
 app.use('/api/session-notes', sessionNotesRoutes);
 app.use('/api/session-scores', sessionScoresRoutes);
-app.use('/api/session-reports', sessionReportsRoutes);
+app.use('/api/sessionReports', sessionReportsRoutes);
 app.use('/api', tenantsRoutes);
 app.use('/api/frameworks', frameworksRoutes);
 app.use('/api/auth', authRoutes);

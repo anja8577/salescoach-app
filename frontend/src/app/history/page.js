@@ -172,10 +172,39 @@ const handleView = (sessionId, status) => {
     }
   };
 
-  const handleReport = (sessionId) => {
-    console.log(`Download report for session ${sessionId}`);
-    // TODO: Implement PDF report generation/download
-    showToast({ message: 'PDF report generation will be implemented in the next phase', type: 'info' });
+  const handleReport = async (sessionId) => {
+    try {
+      const token = getToken();
+      const response = await fetch(`http://localhost:5000/api/sessionReports/${sessionId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (!response.ok) {
+        showToast({ message: 'Report not available. Please try again later.', type: 'error' });
+        return;
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      // Find the session object by sessionId
+      const session = sessions.find(s => s.id === sessionId);
+      const coacheeName = session?.coachee?.name || 'Unknown';
+      const sessionDate = session?.session_date
+        ? new Date(session.session_date).toISOString().split('T')[0]
+        : 'UnknownDate';
+      const safeCoacheeName = coacheeName.replace(/[^a-zA-Z0-9]/g, '-');
+      const safeSessionDate = sessionDate.replace(/[^a-zA-Z0-9-]/g, '-');
+      link.download = `SalesCoach_Report_${safeCoacheeName}_${safeSessionDate}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Error downloading report:', err);
+      showToast({ message: 'Failed to download report.', type: 'error' });
+    }
   };
 
   // Loading state
@@ -212,83 +241,39 @@ const handleView = (sessionId, status) => {
   return (
     <LayoutApp>
       <div className="space-y-6">
-        {/* Dashboard Section */}
-        <div className="grid grid-cols-2 gap-3 mb-6">
-          {/* My Sessions */}
-          <Card className="border-l-4 border-l-blue-600 shadow-lg hover:shadow-xl transition-shadow duration-300 rounded-lg">
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-                    <Calendar className="w-4 h-4 text-white" />
-                  </div>
-                  <span className="text-sm font-lato font-medium">My Sessions</span>
-                </div>
-                <div className="text-right">
-                  <div className="text-2xl font-bold text-gray-900">{totalSessions}</div>
-                  <div className="text-xs text-gray-600">Total coaching sessions</div>
-                </div>
-              </CardTitle>
-            </CardHeader>
-          </Card>
-
-          {/* Recent Activity */}
-          <Card className="border-l-4 border-l-green-500 shadow-lg hover:shadow-xl transition-shadow duration-300 rounded-lg">
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center">
-                    <Clock className="w-4 h-4 text-white" />
-                  </div>
-                  <span className="text-sm font-lato font-medium">Recent Activity</span>
-                </div>
-                <div className="text-right">
-                  <div className="text-base font-semibold text-gray-900">
-                    {recentActivity ? formatDate(recentActivity) : 'No sessions yet'}
-                  </div>
-                  <div className="text-xs text-gray-600">Last coaching session</div>
-                </div>
-              </CardTitle>
-            </CardHeader>
-          </Card>
-        </div>
-
-        {/* Search and Role Filter Row */}
-        <div className="flex flex-wrap gap-4 items-center mb-2">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <Input
-              type="text"
-              placeholder="Search by coach or coachee name..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 h-12 text-base"
-            />
-          </div>
-          <div className="flex gap-3 items-center">
-            <label className="flex items-center gap-1 text-sm">
-              <input type="checkbox" checked={showCoach} onChange={e => setShowCoach(e.target.checked)} /> Coach
-            </label>
-            <label className="flex items-center gap-1 text-sm">
-              <input type="checkbox" checked={showCoachee} onChange={e => setShowCoachee(e.target.checked)} /> Coachee
-            </label>
-            <label className="flex items-center gap-1 text-sm">
-              <input type="checkbox" checked={showSelf} onChange={e => setShowSelf(e.target.checked)} /> Self-Coaching
-            </label>
-          </div>
-        </div>
-
         {/* My Coaching Sessions */}
-        <Card className="border-l-4 border-l-purple-500 shadow-lg hover:shadow-xl transition-shadow duration-300 rounded-lg">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-purple-500 rounded-lg flex items-center justify-center">
-                <Users className="w-5 h-5 text-white" />
-              </div>
-              <span className="text-sm font-lato font-medium">My Coaching Sessions</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0 px-6 pb-6">
+        <div className="mb-0 p-4 bg-white rounded-lg shadow-md border border-gray-200">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-purple-500 rounded-lg flex items-center justify-center">
+              <Users className="w-5 h-5 text-white" />
+            </div>
+            <span className="text-xl font-lato font-semibold">My Coaching Sessions</span>
+          </div>
+          <div className="mt-6 mb-6 flex flex-wrap gap-4 items-center">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <Input
+                type="text"
+                placeholder="Search by coach or coachee name..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10 h-12 text-base"
+              />
+            </div>
+            <div className="flex gap-3 items-center">
+              <label className="flex items-center gap-1 text-sm">
+                <input type="checkbox" checked={showCoach} onChange={e => setShowCoach(e.target.checked)} /> Coach
+              </label>
+              <label className="flex items-center gap-1 text-sm">
+                <input type="checkbox" checked={showCoachee} onChange={e => setShowCoachee(e.target.checked)} /> Coachee
+              </label>
+              <label className="flex items-center gap-1 text-sm">
+                <input type="checkbox" checked={showSelf} onChange={e => setShowSelf(e.target.checked)} /> Self-Coaching
+              </label>
+            </div>
+          </div>
+          <div className="pt-0 px-0 pb-0">
+
             {filteredSessions.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
                 {sessions.length === 0 
@@ -300,8 +285,7 @@ const handleView = (sessionId, status) => {
               <div className="space-y-4">
                 {filteredSessions.map((session) => (
                   <Card key={session.id} className="hover:shadow-md transition-shadow border border-gray-200">
-                    <CardContent className="p-3">
-                      <div className="space-y-2">
+                    <CardContent className="p-3 space-y-2">
                         {/* Row 1: Coach and Date/Time */}
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
@@ -398,14 +382,13 @@ const handleView = (sessionId, status) => {
                             Report
                           </Button>
                         </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+                      </CardContent>
+                    </Card>
                 ))}
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     </LayoutApp>
   );
